@@ -6,7 +6,7 @@ set -o pipefail
 
 # Main storage directory.
 # If you start from downloading MUSDB18, you'll need disk space to dump the MUSDB18 and its wav.
-musdb18_dir=data
+musdb18_dir=data_wav
 
 # After running the recipe a first time, you can run it from stage 1 directly to train new models.
 
@@ -45,7 +45,7 @@ val_dur=80.0
 # Evaluation
 eval_use_gpu=-1
 
-. utils/parse_options.sh
+. ../../wham/ConvTasNet/utils/parse_options.sh
 
 if [[ $stage -le  0 ]]; then
   echo "Stage 0: Downloading MUSDB18 into $musdb18_dir"
@@ -54,7 +54,7 @@ if [[ $stage -le  0 ]]; then
   mkdir -p $musdb18_dir/logs
   unzip $musdb18_dir/musdb18.zip -d $musdb18_dir >> $musdb18_dir/logs/unzip_musdb18.log
   musdbconvert $musdb18_dir $musdb18_dir
-fi
+fi  
 
 # Generate a random ID for the run if no tag is specified
 uuid=$($python_path -c 'import uuid, sys; print(str(uuid.uuid4())[:8])')

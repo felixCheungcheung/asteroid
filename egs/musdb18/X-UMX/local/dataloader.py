@@ -1,22 +1,39 @@
 from asteroid.data import MUSDB18Dataset
+import MS_21Dataloader
 import torch
 from pathlib import Path
 
-validation_tracks = [
-    "Actions - One Minute Smile",
-    "Clara Berry And Wooldog - Waltz For My Victims",
-    "Johnny Lokke - Promises & Lies",
-    "Patrick Talbot - A Reason To Leave",
-    "Triviul - Angelsaint",
-    "Alexander Ross - Goodbye Bolero",
-    "Fergessen - Nos Palpitants",
-    "Leaf - Summerghost",
-    "Skelpolu - Human Mistakes",
-    "Young Griffo - Pennies",
-    "ANiMAL - Rockshow",
-    "James May - On The Line",
-    "Meaxic - Take A Step",
-    "Traffic Experiment - Sirens",
+# validation_tracks = [
+#     "Actions - One Minute Smile",
+#     "Clara Berry And Wooldog - Waltz For My Victims",
+#     "Johnny Lokke - Promises & Lies",
+#     "Patrick Talbot - A Reason To Leave",
+#     "Triviul - Angelsaint",
+#     "Alexander Ross - Goodbye Bolero",
+#     "Fergessen - Nos Palpitants",
+#     "Leaf - Summerghost",
+#     "Skelpolu - Human Mistakes",
+#     "Young Griffo - Pennies",
+#     "ANiMAL - Rockshow",
+#     "James May - On The Line",
+#     "Meaxic - Take A Step",
+#     "Traffic Experiment - Sirens",
+# ]
+ms_21_validation_tracks = [
+    "One_Minute_Smile",
+    "Get_Fooled",
+    "Just_Let_It_Go",
+    "Kaathaadi",
+    "Maggie_May",
+    "Promises_&_Lies",
+    "Rockshow",
+    "Russian_Bot",
+    "Schoolboy_Fanscination",
+    "On_The_Line",
+    "Sirens",
+    "Take_A_Step",
+    "Pennies",
+    "Summerhost",
 ]
 
 
@@ -37,7 +54,21 @@ def load_datasets(parser, args):
         [globals()["_augment_" + aug] for aug in args.source_augmentations]
     )
 
-    train_dataset = MUSDB18Dataset(
+    # train_dataset = MUSDB18Dataset(
+        # split="train",
+        # sources=args.sources,
+        # targets=args.sources,
+        # source_augmentations=source_augmentations,
+        # random_track_mix=True,
+        # segment=args.seq_dur,
+        # random_segments=True,
+        # sample_rate=args.sample_rate,
+        # samples_per_track=args.samples_per_track,
+    #     **dataset_kwargs,
+    # )
+
+    train_dataset = MS_21Dataloader.MS_21Dataset( 
+        csv_file_path = 'D:\smc_master_thesis_2021\MTG_2021_MASTER_THESIS\mixing_secret_dataset_modified.csv',
         split="train",
         sources=args.sources,
         targets=args.sources,
@@ -48,12 +79,22 @@ def load_datasets(parser, args):
         sample_rate=args.sample_rate,
         samples_per_track=args.samples_per_track,
         **dataset_kwargs,
+    
     )
     train_dataset = filtering_out_valid(train_dataset)
 
-    valid_dataset = MUSDB18Dataset(
-        split="train",
-        subset=validation_tracks,
+    # valid_dataset = MUSDB18Dataset(
+    #     split="train",
+    #     subset=validation_tracks,
+    #     sources=args.sources,
+    #     targets=args.sources,
+    #     segment=None,
+    #     **dataset_kwargs,
+    # )
+    valid_dataset = MS_21Dataloader.MS_21Dataset(
+        csv_file_path = 'D:\smc_master_thesis_2021\MTG_2021_MASTER_THESIS\mixing_secret_dataset_modified.csv',
+        split='train',
+        subset=ms_21_validation_tracks,
         sources=args.sources,
         targets=args.sources,
         segment=None,
@@ -72,7 +113,7 @@ def filtering_out_valid(input_dataset):
     input_dataset.tracks = [
         tmp
         for tmp in input_dataset.tracks
-        if not (str(tmp["path"]).split("/")[-1] in validation_tracks)
+        if not (str(tmp["path"]).split("/")[-1] in ms_21_validation_tracks)
     ]
 
     return input_dataset

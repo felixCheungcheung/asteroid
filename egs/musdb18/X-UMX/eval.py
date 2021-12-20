@@ -14,6 +14,7 @@ import os
 import warnings
 import sys
 
+os.environ['KMP_DUPLICATE_LIB_OK']='True'
 
 def load_model(model_name, device="cpu"):
     print("Loading model from: {}".format(model_name), file=sys.stderr)

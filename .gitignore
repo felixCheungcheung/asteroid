@@ -3,6 +3,8 @@ uploader_info.yml
 egs/**/exp
 # Where we'll save pretrained models git folders.
 pretrained_models
+egs/**/data
+egs/**/data_wav
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -117,3 +119,4 @@ venv.bak/
 /.idea/dictionaries/mparient.xml
 /.idea/inspectionProfiles/profiles_settings.xml
 /.idea/vcs.xml
+
