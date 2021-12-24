@@ -1,0 +1,23 @@
+
+
+{
+    "mix":{
+      "superlevel_wind_vocal":{
+        "vocal":["Lead_Vocal","Backing_Vocal"],
+        "wind":["Brass","Woodwind"]
+      },
+      "superlevel_strings_guitar_piano":{
+        "guitar":["Electric_Guitar","Acoustic_Guitar"],
+        "piano":["Electric_Piano","Piano"],
+        "strings":["String"]},
+      "superlevel_syn_FX":{
+        "syn":["Syn"],
+        "fx":["FX"]},
+      "superlevel_bass_percussion":{
+        "drums":["drums","Percussion"],
+        "bass":["Bass"]}
+        
+        
+      
+      }
+  }
