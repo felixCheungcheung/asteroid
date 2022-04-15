@@ -7,6 +7,7 @@ import tqdm
 import itertools
 import numpy as np
 import sklearn.preprocessing
+import pickle
 
 import torch
 import pytorch_lightning as pl
@@ -23,6 +24,8 @@ from torch import nn
 from local import dataloader
 from pathlib import Path
 from operator import itemgetter
+
+CACHE = Path('local/statics_cache')
 
 # Keys which are not in the conf.yml file can be added here.
 # In the hierarchical dictionary created when parsing, the key `key` can be
@@ -282,7 +285,7 @@ class MultiDomainLoss(_Loss):
 
         if self._multi:
             n_src = spec_hat.shape[0]
-            mixture_t = sum([targets[:, n_channel * i : n_channel * i + n_channel, ...] for i in range(n_src)])
+            mixture_t = sum([targets[:, 2 * i : 2 * i + 2, ...] for i in range(n_src)])
             loss_f = freq_domain_loss(spec_hat, Y, combination=self._combi)
             loss_t = time_domain_loss(mixture_t, time_hat, targets, combination=self._combi)
             loss = float(self.coef) * loss_t + loss_f
@@ -386,10 +389,21 @@ def main(conf, args):
         scaler_mean = None
         scaler_std = None
     else:
-        scaler_mean, scaler_std = np.array([0]*max_bin), np.array([0.5]*max_bin)
-        scaler_mean, scaler_std = get_statistics(args, train_dataset)
-        # scaler_mean = None
-        # scaler_std = None
+        if args.ms21 == True:
+            cache = CACHE / 'ms21'
+        else:
+            cache = CACHE / 'musdb'
+
+        cache.mkdir(exist_ok=True,parents=True)
+        cache_file = cache / "statics.pkl"
+        if cache_file.exists():
+            with open(cache_file,'rb') as f:
+                [scaler_mean, scaler_std] = pickle.load(f)
+        else:
+            scaler_mean, scaler_std = get_statistics(args, train_dataset)
+            pickle.dump([scaler_mean, scaler_std],open(cache_file, 'wb'))
+
+
 
     max_bin = bandwidth_to_max_bin(train_dataset.sample_rate, args.in_chan, args.bandwidth)
 
@@ -466,7 +480,6 @@ def main(conf, args):
         gpus=gpus,
         distributed_backend=distributed_backend,
         limit_train_batches=1.0,  # Useful for fast experiment
-        # limit_train_batches=0.1 # Mairus suggests this for quick implementation
     )
     trainer.fit(system)
 
