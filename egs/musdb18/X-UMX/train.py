@@ -386,10 +386,10 @@ def main(conf, args):
         scaler_mean = None
         scaler_std = None
     else:
-        # scaler_mean, scaler_std = np.array([0]*max_bin), np.array([0.5]*max_bin)
-        scaler_mean = None
-        scaler_std = None
-        # scaler_mean, scaler_std = get_statistics(args, train_dataset)
+        scaler_mean, scaler_std = np.array([0]*max_bin), np.array([0.5]*max_bin)
+        scaler_mean, scaler_std = get_statistics(args, train_dataset)
+        # scaler_mean = None
+        # scaler_std = None
 
     max_bin = bandwidth_to_max_bin(train_dataset.sample_rate, args.in_chan, args.bandwidth)
 
