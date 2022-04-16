@@ -517,7 +517,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--config", type=str, required=True, help="the config file for the experiments"
     )
-    parser.add_argument('--disable-cuda', action='store_true',help='Disable CUDA')
+    parser.add_argument('--disable-cuda', action='store_true')
  
     parser.add_argument('--load', '-l', action='store_true' )
     
