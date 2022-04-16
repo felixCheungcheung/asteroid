@@ -234,7 +234,7 @@ def main(conf,args):
 
     device = torch.device(conf["main_args"]["device"])
     state_dict = torch.load(conf["main_args"]["checkpoint"], map_location=device)
-    model.load_state_dict(state_dict['model_state_dict'])
+    model.load_state_dict(state_dict['state_dict'])
     to_save = model.serialize()
     #to_save.update(train_set.get_infos())
     torch.save(to_save, conf["main_args"]["output_model"])
