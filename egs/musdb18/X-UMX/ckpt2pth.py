@@ -82,7 +82,7 @@ def main(conf,args):
         in_chan=args.in_chan,
         n_hop=args.nhop,
         sources=args.sources,
-        max_bin=torch.NoneType,
+        max_bin=None,
         bidirectional=args.bidirectional,
         sample_rate=args.sample_rate,
         spec_power=args.spec_power,
