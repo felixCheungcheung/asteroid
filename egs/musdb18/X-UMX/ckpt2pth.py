@@ -1,79 +1,417 @@
-import os, sys
+import os
 import argparse
 import json
+import random
+import copy
+import sys
+import tqdm
+import itertools
+import numpy as np
+import sklearn.preprocessing
+import pickle
 import yaml
-
 import torch
 import pytorch_lightning as pl
-# from neptune.new.integrations.pytorch_lightning import NeptuneLogger
-import asteroid
-from asteroid import engine
-import numpy as np
+from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
+
+from asteroid.engine.system import System
+from asteroid.engine.optimizers import make_optimizer
 from asteroid.models import XUMX
-# import datasets
-# import models
-# import losses
-# import utils
+from asteroid.models.x_umx import _STFT, _Spectrogram
+from asteroid.losses import singlesrc_mse
+from torch.nn.modules.loss import _Loss
+from torch import nn
+import asteroid
 
+from local import dataloader
+from pathlib import Path
+from operator import itemgetter
 
-pl.seed_everything(1, workers=True)
+CACHE = Path('local/statics_cache')
 
 # Keys which are not in the conf.yml file can be added here.
 # In the hierarchical dictionary created when parsing, the key `key` can be
 # found at dic['main_args'][key]
 
+# By default train.py will use all available GPUs.
 parser = argparse.ArgumentParser(add_help=False)
-
 parser.add_argument(
-    "--checkpoint", type=str, required=True, help="the checkpoint to export as best model"
+    "--checkpoint", type=str, required=True
 )
 
-def main(conf,args):
+def bandwidth_to_max_bin(rate, n_fft, bandwidth):
+    freqs = np.linspace(0, float(rate) / 2, n_fft // 2 + 1, endpoint=True)
 
-    # dataloader_kwargs = ({})
+    return np.max(np.where(freqs <= bandwidth)[0]) + 1
 
-    # train_set = datasets.CombineDatasets(
-    #     speech_dirs=conf["data"]["speech_train_dir"],
-    #     music_dirs=conf["data"]["music_train_dir"],
-    #     sample_rate=conf["data"]["sample_rate"],
-    #     original_sample_rate=conf["data"]["original_sample_rate"],
-    #     segment=conf["data"]["segment"],
-    #     shuffle_tracks=True,
-    #     multi_speakers=conf["training"]["multi_speakers"],
-    #     multi_speakers_frequency=conf["training"]["multi_speakers_frequency"],
-    #     data_ratio=conf["training"]["data_ratio"] if "data_ratio" in conf["training"] else 1.,
-    #     new_data=conf["training"]["new_data"] if "new_data" in conf["training"] else False
-    # )
-    # val_set = datasets.CombineDatasets(
-    #     speech_dirs=conf["data"]["speech_valid_dir"],
-    #     music_dirs=conf["data"]["music_valid_dir"],
-    #     sample_rate=conf["data"]["sample_rate"],
-    #     original_sample_rate=conf["data"]["original_sample_rate"],
-    #     segment=conf["data"]["segment"],
-    #     shuffle_tracks=False,
-    #     multi_speakers=conf["training"]["multi_speakers"],
-    #     multi_speakers_frequency=conf["training"]["multi_speakers_frequency"],
-    #     data_ratio=1.,
-    #     new_data=False
-    # )
-    # train_loader = torch.utils.data.DataLoader(
-    #     train_set,
-    #     shuffle=True,
-    #     batch_size=conf["training"]["batch_size"],
-    #     drop_last=True,
-    #     **dataloader_kwargs
-    # )
-    # val_loader = torch.utils.data.DataLoader(
-    #     val_set,
-    #     shuffle=False,
-    #     batch_size=conf["training"]["batch_size"],
-    #     drop_last=True,
-    #     pin_memory=torch.cuda.is_available(),
-    #     num_workers=conf["training"]["num_workers"],
-    # )
 
-    ###Models
-    model = XUMX(
+def get_statistics(args, dataset):
+    scaler = sklearn.preprocessing.StandardScaler()
+
+    spec = torch.nn.Sequential(
+        _STFT(window_length=args.window_length, n_fft=args.in_chan, n_hop=args.nhop),
+        _Spectrogram(spec_power=args.spec_power, mono=True),
+    )
+
+    dataset_scaler = copy.deepcopy(dataset)
+    dataset_scaler.samples_per_track = 1
+    dataset_scaler.random_segments = False
+    dataset_scaler.random_track_mix = False
+    dataset_scaler.segment = False
+    pbar = tqdm.tqdm(range(len(dataset_scaler)))
+    for ind in pbar:
+        x, _ = dataset_scaler[ind]
+        pbar.set_description("Compute dataset statistics")
+        X = spec(x[None, ...])[0]
+        scaler.partial_fit(np.squeeze(X))
+
+    # set inital input scaler values
+    std = np.maximum(scaler.scale_, 1e-4 * np.max(scaler.scale_))
+    return scaler.mean_, std
+
+
+def freq_domain_loss(s_hat, gt_spec, combination=True):
+    """Calculate frequency-domain loss between estimated and reference spectrograms.
+    MSE between target and estimated target spectrograms is adopted as frequency-domain loss.
+    If you set ``loss_combine_sources: yes'' in conf.yml, computes loss for all possible
+    combinations of 1, ..., nb_sources-1 instruments.
+
+    Input:
+        estimated spectrograms
+            (Sources, Freq. bins, Batch size, Channels, Frames)
+        reference spectrograms
+            (Freq. bins, Batch size, Sources x Channels, Frames)
+        whether use combination or not (optional)
+    Output:
+        calculated frequency-domain loss
+    """
+
+    n_src = len(s_hat)
+    idx_list = [i for i in range(n_src)]
+
+    inferences = []
+    refrences = []
+    for i, s in enumerate(s_hat):
+        inferences.append(s)
+        refrences.append(gt_spec[..., 2 * i : 2 * i + 2, :])
+    assert inferences[0].shape == refrences[0].shape
+
+    _loss_mse = 0.0
+    cnt = 0.0
+    for i in range(n_src):
+        _loss_mse += singlesrc_mse(inferences[i], refrences[i]).mean()
+        cnt += 1.0
+
+    # If Combination is True, calculate the expected combinations.
+    if combination:
+        for c in range(2, n_src):
+            patterns = list(itertools.combinations(idx_list, c))
+            for indices in patterns:
+                tmp_loss = singlesrc_mse(
+                    sum(itemgetter(*indices)(inferences)),
+                    sum(itemgetter(*indices)(refrences)),
+                ).mean()
+                _loss_mse += tmp_loss
+                cnt += 1.0
+
+    _loss_mse /= cnt
+
+    return _loss_mse
+
+
+def time_domain_loss(mix, time_hat, gt_time, combination=True):
+    """Calculate weighted time-domain loss between estimated and reference time signals.
+    weighted SDR [1] between target and estimated target signals is adopted as time-domain loss.
+    If you set ``loss_combine_sources: yes'' in conf.yml, computes loss for all possible
+    combinations of 1, ..., nb_sources-1 instruments.
+
+    Input:
+        mixture time signal
+            (Batch size, Channels, Time Length (samples))
+        estimated time signals
+            (Sources, Batch size, Channels, Time Length (samples))
+        reference time signals
+            (Batch size, Sources x Channels, Time Length (samples))
+        whether use combination or not (optional)
+    Output:
+        calculated time-domain loss
+
+    References
+        - [1] : "Phase-aware Speech Enhancement with Deep Complex U-Net",
+          Hyeong-Seok Choi et al. https://arxiv.org/abs/1903.03107
+    """
+
+    n_src, n_batch, n_channel, time_length = time_hat.shape
+    idx_list = [i for i in range(n_src)]
+
+    # Fix Length
+    mix = mix[Ellipsis, :time_length]
+    gt_time = gt_time[Ellipsis, :time_length]
+
+    # Prepare Data and Fix Shape
+    mix_ref = [mix]
+    mix_ref.extend([gt_time[..., 2 * i : 2 * i + 2, :] for i in range(n_src)])
+    mix_ref = torch.stack(mix_ref)
+    mix_ref = mix_ref.view(-1, time_length)
+    time_hat = time_hat.view(n_batch * n_channel * time_hat.shape[0], time_hat.shape[-1])
+
+    # If Combination is True, calculate the expected combinations.
+    if combination:
+        indices = []
+        for c in range(2, n_src):
+            indices.extend(list(itertools.combinations(idx_list, c)))
+
+        for tr in indices:
+            sp = [n_batch * n_channel * (tr[i] + 1) for i in range(len(tr))]
+            ep = [n_batch * n_channel * (tr[i] + 2) for i in range(len(tr))]
+            spi = [n_batch * n_channel * tr[i] for i in range(len(tr))]
+            epi = [n_batch * n_channel * (tr[i] + 1) for i in range(len(tr))]
+
+            tmp = sum([mix_ref[sp[i] : ep[i], ...].clone() for i in range(len(tr))])
+            tmpi = sum([time_hat[spi[i] : epi[i], ...].clone() for i in range(len(tr))])
+            mix_ref = torch.cat([mix_ref, tmp], dim=0)
+            time_hat = torch.cat([time_hat, tmpi], dim=0)
+
+        mix_t = mix_ref[: n_batch * n_channel, Ellipsis].repeat(n_src + len(indices), 1)
+        refrences_t = mix_ref[n_batch * n_channel :, Ellipsis]
+    else:
+        mix_t = mix_ref[: n_batch * n_channel, Ellipsis].repeat(n_src, 1)
+        refrences_t = mix_ref[n_batch * n_channel :, Ellipsis]
+
+    # Calculation
+    _loss_sdr = weighted_sdr(time_hat, refrences_t, mix_t)
+
+    return 1.0 + _loss_sdr
+
+
+def weighted_sdr(input, gt, mix, weighted=True, eps=1e-10):
+    # ``input'', ``gt'' and ``mix'' should be (Batch, Time Length)
+    assert input.shape == gt.shape
+    assert mix.shape == gt.shape
+
+    ns = mix - gt
+    ns_hat = mix - input
+
+    if weighted:
+        alpha_num = (gt * gt).sum(1, keepdims=True)
+        alpha_denom = (gt * gt).sum(1, keepdims=True) + (ns * ns).sum(1, keepdims=True)
+        alpha = alpha_num / (alpha_denom + eps)
+    else:
+        alpha = 0.5
+
+    # Target
+    num_cln = (input * gt).sum(1, keepdims=True)
+    denom_cln = torch.sqrt(eps + (input * input).sum(1, keepdims=True)) * torch.sqrt(
+        eps + (gt * gt).sum(1, keepdims=True)
+    )
+    sdr_cln = num_cln / (denom_cln + eps)
+
+    # Noise
+    num_noise = (ns * ns_hat).sum(1, keepdims=True)
+    denom_noise = torch.sqrt(eps + (ns_hat * ns_hat).sum(1, keepdims=True)) * torch.sqrt(
+        eps + (ns * ns).sum(1, keepdims=True)
+    )
+    sdr_noise = num_noise / (denom_noise + eps)
+
+    return torch.mean(-alpha * sdr_cln - (1.0 - alpha) * sdr_noise)
+
+
+class MultiDomainLoss(_Loss):
+    """A class for calculating loss functions of X-UMX.
+
+    Args:
+        window_length (int): The length in samples of window function to use in STFT.
+        in_chan (int): Number of input channels, should be equal to
+            STFT size and STFT window length in samples.
+        n_hop (int): STFT hop length in samples.
+        spec_power (int): Exponent for spectrogram calculation.
+        nb_channels (int): set number of channels for model (1 for mono
+            (spectral downmix is applied,) 2 for stereo).
+        loss_combine_sources (bool): Set to true if you are using the combination scheme
+            proposed in [1]. If you select ``loss_combine_sources: yes'' via
+            conf.yml, this is set as True.
+        loss_use_multidomain (bool): Set to true if you are using a frequency- and time-domain
+            losses collaboratively, i.e., Multi Domain Loss (MDL) proposed in [1].
+            If you select ``loss_use_multidomain: yes'' via conf.yml, this is set as True.
+        mix_coef (float): A mixing parameter for multi domain losses
+
+    References
+        [1] "All for One and One for All: Improving Music Separation by Bridging
+        Networks", Ryosuke Sawata, Stefan Uhlich, Shusuke Takahashi and Yuki Mitsufuji.
+        https://arxiv.org/abs/2010.04228 (and ICASSP 2021)
+    """
+
+    def __init__(
+        self,
+        window_length,
+        in_chan,
+        n_hop,
+        spec_power,
+        nb_channels,
+        loss_combine_sources,
+        loss_use_multidomain,
+        mix_coef,
+    ):
+        super().__init__()
+        self.transform = nn.Sequential(
+            _STFT(window_length=window_length, n_fft=in_chan, n_hop=n_hop),
+            _Spectrogram(spec_power=spec_power, mono=(nb_channels == 1)),
+        )
+        self._combi = loss_combine_sources
+        self._multi = loss_use_multidomain
+        self.coef = mix_coef
+        print("Combination Loss: {}".format(self._combi))
+        if self._multi:
+            print(
+                "Multi Domain Loss: {}, scaling parameter for time-domain loss={}".format(
+                    self._multi, self.coef
+                )
+            )
+        else:
+            print("Multi Domain Loss: {}".format(self._multi))
+        self.cnt = 0
+
+    def forward(self, est_targets, targets, return_est=False, **kwargs):
+        """est_targets (list) has 2 elements:
+            [0]->Estimated Spec. : (Sources, Frames, Batch size, Channels, Freq. bins)
+            [1]->Estimated Signal: (Sources, Batch size, Channels, Time Length)
+
+        targets: (Batch, Source, Channels, TimeLen)
+        """
+
+        spec_hat = est_targets[0]
+        time_hat = est_targets[1]
+
+        # Fix shape and apply transformation of targets
+        n_batch, n_src, n_channel, time_length = targets.shape
+        targets = targets.view(n_batch, n_src * n_channel, time_length)
+        Y = self.transform(targets)[0]
+
+        if self._multi:
+            n_src = spec_hat.shape[0]
+            mixture_t = sum([targets[:, 2 * i : 2 * i + 2, ...] for i in range(n_src)])
+            loss_f = freq_domain_loss(spec_hat, Y, combination=self._combi)
+            loss_t = time_domain_loss(mixture_t, time_hat, targets, combination=self._combi)
+            loss = float(self.coef) * loss_t + loss_f
+        else:
+            loss = freq_domain_loss(spec_hat, Y, combination=self._combi)
+
+        return loss
+
+
+class XUMXManager(System):
+    """A class for X-UMX systems inheriting the base system class of lightning.
+    The difference from base class is specialized for X-UMX to calculate
+    validation loss preventing the GPU memory over flow.
+
+    Args:
+        model (torch.nn.Module): Instance of model.
+        optimizer (torch.optim.Optimizer): Instance or list of optimizers.
+        loss_func (callable): Loss function with signature
+            (est_targets, targets).
+        train_loader (torch.utils.data.DataLoader): Training dataloader.
+        val_loader (torch.utils.data.DataLoader): Validation dataloader.
+        scheduler (torch.optim.lr_scheduler._LRScheduler): Instance, or list
+            of learning rate schedulers. Also supports dict or list of dict as
+            ``{"interval": "step", "scheduler": sched}`` where ``interval=="step"``
+            for step-wise schedulers and ``interval=="epoch"`` for classical ones.
+        config: Anything to be saved with the checkpoints during training.
+            The config dictionary to re-instantiate the run for example.
+        val_dur (float): When calculating validation loss, the loss is calculated
+            per this ``val_dur'' in seconds on GPU to prevent memory overflow.
+
+    For more info on its methods, properties and hooks, have a look at lightning's docs:
+    https://pytorch-lightning.readthedocs.io/en/stable/lightning_module.html#lightningmodule-api
+    """
+
+    default_monitor: str = "val_loss"
+
+    def __init__(
+        self,
+        model,
+        optimizer,
+        loss_func,
+        train_loader,
+        val_loader=None,
+        scheduler=None,
+        config=None,
+        val_dur=None,
+    ):
+        config["data"].pop("sources")
+        config["data"].pop("source_augmentations")
+        super().__init__(model, optimizer, loss_func, train_loader, val_loader, scheduler, config)
+        self.val_dur_samples = model.sample_rate * val_dur
+
+    def validation_step(self, batch, batch_nb):
+        """
+        We calculate the ``validation loss'' by splitting each song into
+        smaller chunks in order to prevent GPU out-of-memory errors.
+        The length of each chunk is given by ``self.val_dur_samples'' which is
+        computed from ``sample_rate [Hz]'' and ``val_dur [seconds]'' which are
+        both set in conf.yml.
+        """
+        sp = 0
+        dur_samples = int(self.val_dur_samples)
+        cnt = 0
+        loss_tmp = 0.0
+
+        while 1:
+            batch_tmp = [
+                batch[0][Ellipsis, sp : sp + dur_samples],
+                batch[1][Ellipsis, sp : sp + dur_samples],
+            ]
+            loss_tmp += self.common_step(batch_tmp, batch_nb, train=False)
+            cnt += 1
+            sp += dur_samples
+            if batch_tmp[0].shape[-1] < dur_samples or batch[0].shape[-1] == cnt * dur_samples:
+                break
+        loss = loss_tmp / cnt
+        self.log("val_loss", loss, on_epoch=True, prog_bar=True)
+
+
+def main(conf, args):
+    # Set seed for random
+    torch.manual_seed(args.seed)
+    random.seed(args.seed)
+
+    # create output dir if not exist
+    # exp_dir = Path(args.output)
+    # exp_dir.mkdir(parents=True, exist_ok=True)
+
+    # Load Datasets
+    # train_dataset, valid_dataset = dataloader.load_datasets(parser, args)
+    # dataloader_kwargs = (
+    #     {"num_workers": args.num_workers, "pin_memory": True} if torch.cuda.is_available() else {}
+    # )
+    # train_sampler = torch.utils.data.DataLoader(
+    #     train_dataset, batch_size=args.batch_size, shuffle=True, **dataloader_kwargs
+    # )
+    # valid_sampler = torch.utils.data.DataLoader(valid_dataset, batch_size=1, **dataloader_kwargs)
+
+    # Define model and optimizer
+    # if args.pretrained is not None:
+    #     scaler_mean = None
+    #     scaler_std = None
+    # else:
+    #     if args.ms21 == True:
+    #         cache = CACHE / 'ms21'
+    #     else:
+    #         cache = CACHE / 'musdb'
+
+    #     cache.mkdir(exist_ok=True,parents=True)
+    #     cache_file = cache / "statics.pkl"
+    #     if cache_file.exists():
+    #         with open(cache_file,'rb') as f:
+    #             [scaler_mean, scaler_std] = pickle.load(f)
+    #     else:
+    #         scaler_mean, scaler_std = get_statistics(args, train_dataset)
+    #         pickle.dump([scaler_mean, scaler_std],open(cache_file, 'wb'))
+
+
+
+    max_bin = bandwidth_to_max_bin(args.sample_rate, args.in_chan, args.bandwidth)
+
+    x_unmix = XUMX(
         window_length=args.window_length,
         input_mean=None,
         input_scale=None,
@@ -82,147 +420,61 @@ def main(conf,args):
         in_chan=args.in_chan,
         n_hop=args.nhop,
         sources=args.sources,
-        max_bin=None,
+        max_bin=max_bin,
         bidirectional=args.bidirectional,
         sample_rate=args.sample_rate,
         spec_power=args.spec_power,
         return_time_signals=True if args.loss_use_multidomain else False,
     )
-    # if(conf["model"]["name"] == "ConvTasNet"):
-    #     conf["masknet"].update({"n_src": conf["data"]["n_src"]})
-    #     model = models.ConvTasNetNorm(
-    #         conf["filterbank"],
-    #         conf["masknet"],
-    #         sample_rate=conf["data"]["sample_rate"],
-    #         device=arg_dic["main_args"]["device"]
-    #     )
-    # elif (conf["model"]["name"] == "UNet"):
-    #     # UNet with logl2 time loss and normalization inside model
-    #     model = models.UNet(
-    #         conf["data"]["sample_rate"],
-    #         conf["data"]["fft_size"],
-    #         conf["data"]["hop_size"],
-    #         conf["data"]["window_size"],
-    #         conf["model"]["kernel_size"],
-    #         conf["model"]["stride"],
-    #         device=arg_dic["main_args"]["device"],
-    #         mask_logit=conf["model"]["mask_logit"]
-    #     )
-    # elif (conf["model"]["name"] == "UNetP"):
-    #     # UNet with logl2 time loss and normalization inside model
-    #     model = models.UNetP(
-    #         conf["data"]["sample_rate"],
-    #         conf["data"]["fft_size"],
-    #         conf["data"]["hop_size"],
-    #         conf["data"]["window_size"],
-    #         conf["model"]["kernel_size"],
-    #         conf["model"]["stride"],
-    #         device=arg_dic["main_args"]["device"],
-    #         mask_logit=conf["model"]["mask_logit"]
-    #     )
-    # elif(conf["model"]["name"] == "OUMX"):
-    #     scaler_mean, scaler_std = datasets.get_statistics(conf, val_set)
-    #     max_bin = utils.bandwidth_to_max_bin(conf["data"]["sample_rate"], conf["model"]["in_chan"], conf["model"]["bandwidth"])
-    #     #scaler_mean, scaler_std = np.array([0]*max_bin), np.array([0.5]*max_bin)
-    #     model = models.OUMX(
-    #         window_length=conf["model"]["window_length"],
-    #         input_mean=scaler_mean,
-    #         input_scale=scaler_std,
-    #         nb_channels=conf["model"]["nb_channels"],
-    #         hidden_size=conf["model"]["hidden_size"],
-    #         in_chan=conf["model"]["in_chan"],
-    #         n_hop=conf["model"]["nhop"],
-    #         sources=conf["data"]["sources"],
-    #         max_bin=max_bin,
-    #         bidirectional=conf["model"]["bidirectional"],
-    #         sample_rate=conf["data"]["sample_rate"],
-    #         spec_power=conf["model"]["spec_power"],
-    #     )
-    # elif(conf["model"]["name"] == "UNetAttn"):
-    #     #scaler_mean, scaler_std = datasets.get_statistics(conf, val_set)
-    #     max_bins = utils.bandwidth_to_max_bin(conf["data"]["sample_rate"], conf["model"]["in_chan"], conf["model"]["bandwidth"])
-    #     #scaler_mean, scaler_std = np.array([0]*max_bin), np.array([0.5]*max_bin)
-    #     model = models.UNetAttn(
-    #         window_length=conf["model"]["window_length"],
-    #         nb_channels=conf["model"]["nb_channels"],
-    #         in_chan=conf["model"]["in_chan"],
-    #         n_hop=conf["model"]["nhop"],
-    #         max_bins=max_bins,
-    #         sample_rate=conf["data"]["sample_rate"],
-    #         spec_power=conf["model"]["spec_power"],
-    #         n_src=conf["data"]["n_src"],
-    #         mask_logit=conf["model"]["mask_logit"],
-    #         k=conf["model"]["k"],
-    #         hidden_size=conf["model"]["hidden_size"]
-    #     )
 
-    # ###Losses
-    # loss_module = utils.my_import("losses."+conf["training"]['loss'])
-    # if 'weighted' in conf["training"]['loss']:
-    #     loss_func = loss_module(weights=np.array(conf["training"]['class_weights'].split(';'),dtype=np.float32))
-    # elif 'MultiDomain' in conf["training"]['loss']:
-    #     loss_func = losses.MultiDomainLoss(
-    #         window_length=conf["model"]["window_length"],
-    #         in_chan=conf["model"]["in_chan"],
-    #         n_hop=conf["model"]["nhop"],
-    #         spec_power=conf["model"]["spec_power"],
-    #         nb_channels=conf["model"]["nb_channels"],
-    #         loss_combine_sources=conf["training"]['loss_combine_sources'],
-    #         loss_use_multidomain=conf["training"]['loss_use_multidomain'],
-    #         mix_coef=conf["training"]['mix_coef'],
-    #     )
-    # else:
-    #     loss_func = loss_module()
+    optimizer = make_optimizer(
+        x_unmix.parameters(), lr=args.lr, optimizer="adam", weight_decay=args.weight_decay
+    )
 
-    # ###Optimizer
-    # optimizer = asteroid.engine.optimizers.make_optimizer(model.parameters(), lr=conf["optim"]["lr"], weight_decay=conf["optim"]["weight_decay"])
-    # if conf["training"]["half_lr"]:
-    #     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-    #         optimizer=optimizer, factor=conf["optim"]["lr_decay_gamma"], patience=conf["optim"]["lr_decay_patience"], cooldown=10
-    #     )
+    # Define scheduler
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, factor=args.lr_decay_gamma, patience=args.lr_decay_patience, cooldown=10
+    )
 
-    # # Just after instantiating, save the args. Easy loading in the future.
-    # exp_dir = os.path.join(conf["main_args"]["exp_dir"],conf["main_args"]['config'].split('.yml')[0])
-    # os.makedirs(exp_dir, exist_ok=True)
+    # Save config
     # conf_path = os.path.join(exp_dir, "conf.yml")
     # with open(conf_path, "w") as outfile:
     #     yaml.safe_dump(conf, outfile)
 
-    # ### delete paths key which raises error
-    # if "speech_train_dir" in conf["data"]: del conf["data"]["speech_train_dir"]
-    # if "speech_valid_dir" in conf["data"]: del conf["data"]["speech_valid_dir"]
-    # if "music_train_dir" in conf["data"]: del conf["data"]["music_train_dir"]
-    # if "music_valid_dir" in conf["data"]: del conf["data"]["music_valid_dir"]
+    es = EarlyStopping(monitor="val_loss", mode="min", patience=args.patience, verbose=True)
 
-    # system = asteroid.engine.system.System(
-    #     model=model,
-    #     loss_func=loss_func,
-    #     optimizer=optimizer,
-    #     train_loader=train_loader,
-    #     val_loader=val_loader,
-    #     scheduler=scheduler,
-    #     config=conf
-    # )
+    # Define Loss function.
+    loss_func = MultiDomainLoss(
+        window_length=args.window_length,
+        in_chan=args.in_chan,
+        n_hop=args.nhop,
+        spec_power=args.spec_power,
+        nb_channels=args.nb_channels,
+        loss_combine_sources=args.loss_combine_sources,
+        loss_use_multidomain=args.loss_use_multidomain,
+        mix_coef=args.mix_coef,
+    )
+    system = XUMXManager(
+        model=x_unmix,
+        loss_func=loss_func,
+        optimizer=optimizer,
+        train_loader=None,
+        val_loader=None,
+        scheduler=scheduler,
+        config=conf,
+        val_dur=args.val_dur,
+    )
 
+    # # Define callbacks
     # callbacks = []
-    # checkpoint_dir = os.path.join(exp_dir, "checkpoints")
-    # checkpoint = pl.callbacks.ModelCheckpoint(
-    #     checkpoint_dir,
-    #     monitor="val_loss",
-    #     mode="min",
-    #     save_top_k=5,
-    #     verbose=True
+    # checkpoint_dir = os.path.join(exp_dir, "checkpoints/")
+    # checkpoint = ModelCheckpoint(
+    #     checkpoint_dir, monitor="val_loss", mode="min", save_top_k=5, verbose=True
     # )
     # callbacks.append(checkpoint)
-    # if conf["training"]["early_stop"]:
-    #     callbacks.append(pl.callbacks.EarlyStopping(
-    #         monitor="val_loss",
-    #         mode="min",
-    #         patience=conf["optim"]["patience"],
-    #         verbose=True
-    #     ))
+    # callbacks.append(es)
 
-    # if conf["main_args"]["load"]:
+    # if args.load_model:
     #     checkpoint_files = [os.path.join(checkpoint_dir, x) for x in os.listdir(checkpoint_dir) if x.endswith(".ckpt")]
     #     if len(checkpoint_files)>0:
     #         newest_checkpoint = max(checkpoint_files, key = os.path.getctime)
@@ -231,14 +483,34 @@ def main(conf,args):
     # else:
     #     newest_checkpoint = None
 
+    # # Don't ask GPU if they are not available.
+    # gpus = -1 if torch.cuda.is_available() else None
+    # distributed_backend = "ddp" if torch.cuda.is_available() else None
+    # trainer = pl.Trainer(
+    #     max_epochs=args.epochs,
+    #     callbacks=callbacks,
+    #     default_root_dir=exp_dir,
+    #     gpus=gpus,
+    #     resume_from_checkpoint=newest_checkpoint,
+    #     distributed_backend=distributed_backend,
+    #     limit_train_batches=1.0,  # Useful for fast experiment
+    # )
 
     device = torch.device(conf["main_args"]["device"])
+    # model = system.load_from_checkpoint(conf["main_args"]["checkpoint"])
     state_dict = torch.load(conf["main_args"]["checkpoint"], map_location=device)
-    model.load_state_dict(state_dict['state_dict'])
-    to_save = model.serialize()
+    from collections import OrderedDict
+    new_state_dict = OrderedDict()
+    for k,v in state_dict['state_dict'].items():
+        name = k.replace('model.', '')
+        if 'loss_func' in name:
+            continue
+        new_state_dict[name] = v
+    x_unmix.load_state_dict(new_state_dict)
+    to_save = x_unmix.serialize()
     #to_save.update(train_set.get_infos())
     torch.save(to_save, conf["main_args"]["output_model"])
-
+    print("successfully saved model from checkpoint")
 
 if __name__ == "__main__":
     args = parser.parse_args()
