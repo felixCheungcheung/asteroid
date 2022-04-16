@@ -515,7 +515,7 @@ if __name__ == "__main__":
     # which we can create parsers. Each top level key in the dictionary defined
     # by the YAML file creates a group in the parser.
     parser.add_argument(
-        "--config", type=str, required=True, help="the config file for the experiments"
+        "--confg", type=str, required=True, help="the config file for the experiments"
     )
     parser.add_argument('--disable-cuda', action='store_true')
  
