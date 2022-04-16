@@ -519,7 +519,7 @@ if __name__ == "__main__":
     )
     parser.add_argument('--disable-cuda', action='store_true')
  
-    parser.add_argument('--load', '-l', action='store_true' )
+    parser.add_argument('--load_model', '-lm', action='store_true' )
     
     config_model = sys.argv[2]
     with open(config_model) as f:
