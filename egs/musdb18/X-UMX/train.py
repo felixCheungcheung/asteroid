@@ -33,7 +33,7 @@ CACHE = Path('local/statics_cache')
 # found at dic['main_args'][key]
 
 # By default train.py will use all available GPUs.
-parser = argparse.ArgumentParser()
+parser = argparse.ArgumentParser(add_help=False)
 
 
 def bandwidth_to_max_bin(rate, n_fft, bandwidth):
