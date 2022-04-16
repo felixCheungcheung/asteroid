@@ -471,7 +471,7 @@ def main(conf, args):
     callbacks.append(checkpoint)
     callbacks.append(es)
 
-    if args.load:
+    if args.load_model:
         checkpoint_files = [os.path.join(checkpoint_dir, x) for x in os.listdir(checkpoint_dir) if x.endswith(".ckpt")]
         if len(checkpoint_files)>0:
             newest_checkpoint = max(checkpoint_files, key = os.path.getctime)
