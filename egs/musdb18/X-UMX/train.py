@@ -3,6 +3,7 @@ import argparse
 import json
 import random
 import copy
+import sys
 import tqdm
 import itertools
 import numpy as np
@@ -470,6 +471,15 @@ def main(conf, args):
     callbacks.append(checkpoint)
     callbacks.append(es)
 
+    if args.load:
+        checkpoint_files = [os.path.join(checkpoint_dir, x) for x in os.listdir(checkpoint_dir) if x.endswith(".ckpt")]
+        if len(checkpoint_files)>0:
+            newest_checkpoint = max(checkpoint_files, key = os.path.getctime)
+        else:
+            newest_checkpoint = None
+    else:
+        newest_checkpoint = None
+
     # Don't ask GPU if they are not available.
     gpus = -1 if torch.cuda.is_available() else None
     distributed_backend = "ddp" if torch.cuda.is_available() else None
@@ -478,6 +488,7 @@ def main(conf, args):
         callbacks=callbacks,
         default_root_dir=exp_dir,
         gpus=gpus,
+        resume_from_checkpoint=newest_checkpoint,
         distributed_backend=distributed_backend,
         limit_train_batches=1.0,  # Useful for fast experiment
     )
@@ -503,7 +514,15 @@ if __name__ == "__main__":
     # We start with opening the config file conf.yml as a dictionary from
     # which we can create parsers. Each top level key in the dictionary defined
     # by the YAML file creates a group in the parser.
-    with open("local/conf.yml") as f:
+    parser.add_argument(
+        "--config", type=str, required=True, help="the config file for the experiments"
+    )
+    parser.add_argument('--disable-cuda', action='store_true',help='Disable CUDA')
+ 
+    parser.add_argument('--load', '-l', action='store_true' )
+    
+    config_model = sys.argv[2]
+    with open(config_model) as f:
         def_conf = yaml.safe_load(f)
     parser = prepare_parser_from_dict(def_conf, parser=parser)
 
