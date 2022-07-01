@@ -10,7 +10,6 @@ import torch
 import tqdm
 import soundfile as sf
 import os
-import pandas as pd
 # import musedb
 
 class MS_21Dataset(torch.utils.data.Dataset):
@@ -94,11 +93,7 @@ class MS_21Dataset(torch.utils.data.Dataset):
     def __init__(
         self,
         root,
-        csv_file_path,
-        grouping_info = {'drums':['Drum_Kick','Drum_Snare','Drum_HiHat','Drum_Cymbals','Drum_Overheads','Drum_Tom','Drum_Room','Percussion'
-],'vocals':['Lead_Vocal','Backing_Vocal'],'bass':['Bass'],'other':['Acoustic_Guitar','Electric_Guitar','Piano','Electric_Piano','Brass','String','WoodWind','Other'
-]}, # default traditional four stems grouping style
-        sources=["vocals", "bass", "drums", "other"],
+        sources=["vocal", "bass", "percussion", "other"],
         targets=None,
         suffix=".wav",
         split="train",
@@ -112,9 +107,6 @@ class MS_21Dataset(torch.utils.data.Dataset):
     ):
 
         self.root = Path(root).expanduser()
-        self.csv_info = pd.read_csv(csv_file_path)
-        
-        self.grouping_info = grouping_info
         self.split = split
         self.sample_rate = sample_rate
         self.segment = segment
@@ -132,147 +124,198 @@ class MS_21Dataset(torch.utils.data.Dataset):
             raise RuntimeError("No tracks found.")
         # self.__getitem__(index = 1)
 
+#     def __getitem__(self, index):
+#         # create a dict for storing stem grouping rule
+        
+        
+        
+#         # assemble the mixture of target and interferers
+#         audio_sources = {}
+
+#         # get track_id
+#         track_id = index // self.samples_per_track
+        
+        
+#         # print("min duration = ", self.tracks[track_id]["min_duration"])
+#         if self.random_segments:
+#             start = random.uniform(0, self.tracks[track_id]["min_duration"] - self.segment)
+#         else:
+#             start = 0
+
+#         # create sources based on multitracks
+#         # for source in self.sources:
+#         # optionally select a random track for each source
+#         if self.random_track_mix:
+#             # load a different track
+#             track_id = random.choice(range(len(self.tracks)))
+#             if self.random_segments:
+#                 start = random.uniform(0, self.tracks[track_id]["min_duration"] - self.segment)
+
+#         # loads the full track duration
+#         start_sample = int(start * self.sample_rate)
+#         # check if dur is none
+#         if self.segment:
+#             # stop in soundfile is calc in samples, not seconds
+#             stop_sample = start_sample + int(self.segment * self.sample_rate)
+#         else:
+#             # set to None for reading complete file
+#             stop_sample = None
+
+#         # load actual audio
+# #             audio, _ = sf.read(
+# #                 Path(self.tracks[track_id]["path"] / source).with_suffix(self.suffix),
+# #                 always_2d=True,
+# #                 start=start_sample,
+# #                 stop=stop_sample,
+# #             )
+        
+#         track_path = self.tracks[track_id]['path']
+#         print("Track_Title = ",track_path)
+#         # load multitracks and be ready to do linear mix
+#         max_len = []
+#         for i in self.grouping_info:
+#             # print(i) # get source names
+#             stem_tracks = []
+#             # get all instrument name within one stem
+#             for j in self.grouping_info[i]:
+#                 # print(j)
+#                 # get all multitrack filename within one instrument
+#                 # get the corresponding song:
+#                 track_title = str(track_path).split('\\')[-1]
+#                 track_title = track_title.replace('_',' ')
+                
+#                 track_df = self.csv_info.loc[self.csv_info['Music_Title']==track_title]
+#                 # print(track_df)
+#                 if track_df.empty==True:
+#                     print("This song doesn't exist in csv file", track_title)
+                    
+                    
+                    
+#                 temp = track_df[j].tolist()[0]
+#                 if temp != '[]':
+#                     for m in temp.strip('[]').split(', '):
+#                         # print(m.strip(''))
+#                         stem_tracks.append(m.strip('\''))
+                
+#             # apply linear mix within one source (stem) later can intergrate with data augmentation
+#             # first load each multitrack
+#             source_multitrack = {}
+#             max_len_source = 0
+#             for k in stem_tracks:
+#                 audio,_ = sf.read(
+#                     Path(self.tracks[track_id]['path'] / k),
+#                 always_2d=True,
+#                 start=start_sample,
+#                 stop=stop_sample,
+#                 )
+#                 # convert to torch tensor
+#                 audio = torch.tensor(audio.T, dtype=torch.float)
+                
+#                 if list(audio.shape)[0] == 1:
+#                     audio = audio.repeat(2,1)
+                    
+#                 # apply multitrack-wise augmentations
+#                 # audio = self.multitrack_augmentation(audio)
+#                 if max_len_source <= audio.size(dim=1):
+#                     max_len_source = audio.size(dim=1)
+#                 source_multitrack[k] = audio
+                
+#             # zero-padding to the maximum length of tensor
+#             max_len.append(max_len_source)
+
+#             # print("Max_length = ",max_len_source)
+#             for key, value in source_multitrack.items():
+#                 if value.size(dim=1)==max_len_source:
+#                     continue
+#                 else:
+#                     # print("before zero-padding, value.size = ",value.size(dim=1))
+#                     target = torch.zeros(2,max_len_source)
+#                     source_len = value.size(dim=1)
+#                     target[:,:source_len] = value
+#                     source_multitrack[key] = target
+#                     # print("after padding, len = ", source_multitrack[key].size(dim=1))
+
+
+            
+
+#             # apply linear mix over all multitracks within one source index=0
+#             source_mix = torch.stack(list(source_multitrack.values())).sum(0)
+#             audio_sources[i] = source_mix
+#             # apply source-wise augmentations
+#             # source_mix = self.source_augmentations(source_mix)
+
+
+        
+#         for key, value in audio_sources.items():
+#             if value.size(dim=1)==max(max_len):
+#                 continue
+#             else:
+#                 # print("before zero-padding, value.size = ",value.size(dim=1))
+#                 target = torch.zeros(2,max(max_len))
+#                 source_len = value.size(dim=1)
+#                 target[:,:source_len] = value
+#                 audio_sources[key] = target
+#                 # print("after padding, len = ", source_multitrack[key].size(dim=1))
+
+#         audio_mix = torch.stack(list(audio_sources.values())).sum(0)
+#         if self.targets:
+#             audio_sources = torch.stack(
+#                 [wav for src, wav in audio_sources.items() if src in self.targets], dim=0
+#         )
+#         # audio_mix a mixture over the sources, audio_sources is a concatenation of all sources
+#         return audio_mix, audio_sources
+    
     def __getitem__(self, index):
-        # create a dict for storing stem grouping rule
-        
-        
-        
         # assemble the mixture of target and interferers
         audio_sources = {}
 
         # get track_id
         track_id = index // self.samples_per_track
-        
-        
-        # print("min duration = ", self.tracks[track_id]["min_duration"])
         if self.random_segments:
             start = random.uniform(0, self.tracks[track_id]["min_duration"] - self.segment)
         else:
             start = 0
 
-        # create sources based on multitracks
-        # for source in self.sources:
-        # optionally select a random track for each source
-        if self.random_track_mix:
-            # load a different track
-            track_id = random.choice(range(len(self.tracks)))
-            if self.random_segments:
-                start = random.uniform(0, self.tracks[track_id]["min_duration"] - self.segment)
+        # load sources
+        for source in self.sources:
+            # optionally select a random track for each source
+            if self.random_track_mix:
+                # load a different track
+                track_id = random.choice(range(len(self.tracks)))
+                if self.random_segments:
+                    start = random.uniform(0, self.tracks[track_id]["min_duration"] - self.segment)
 
-        # loads the full track duration
-        start_sample = int(start * self.sample_rate)
-        # check if dur is none
-        if self.segment:
-            # stop in soundfile is calc in samples, not seconds
-            stop_sample = start_sample + int(self.segment * self.sample_rate)
-        else:
-            # set to None for reading complete file
-            stop_sample = None
+            # loads the full track duration
+            start_sample = int(start * self.sample_rate)
+            # check if dur is none
+            if self.segment:
+                # stop in soundfile is calc in samples, not seconds
+                stop_sample = start_sample + int(self.segment * self.sample_rate)
+            else:
+                # set to None for reading complete file
+                stop_sample = None
 
-        # load actual audio
-#             audio, _ = sf.read(
-#                 Path(self.tracks[track_id]["path"] / source).with_suffix(self.suffix),
-#                 always_2d=True,
-#                 start=start_sample,
-#                 stop=stop_sample,
-#             )
-        
-        track_path = self.tracks[track_id]['path']
-        print("Track_Title = ",track_path)
-        # load multitracks and be ready to do linear mix
-        max_len = []
-        for i in self.grouping_info:
-            # print(i) # get source names
-            stem_tracks = []
-            # get all instrument name within one stem
-            for j in self.grouping_info[i]:
-                # print(j)
-                # get all multitrack filename within one instrument
-                # get the corresponding song:
-                track_title = str(track_path).split('\\')[-1]
-                track_title = track_title.replace('_',' ')
-                
-                track_df = self.csv_info.loc[self.csv_info['Music_Title']==track_title]
-                # print(track_df)
-                if track_df.empty==True:
-                    print("This song doesn't exist in csv file", track_title)
-                    
-                    
-                    
-                temp = track_df[j].tolist()[0]
-                if temp != '[]':
-                    for m in temp.strip('[]').split(', '):
-                        # print(m.strip(''))
-                        stem_tracks.append(m.strip('\''))
-                
-            # apply linear mix within one source (stem) later can intergrate with data augmentation
-            # first load each multitrack
-            source_multitrack = {}
-            max_len_source = 0
-            for k in stem_tracks:
-                audio,_ = sf.read(
-                    Path(self.tracks[track_id]['path'] / k),
+            # load actual audio
+            track_path = self.tracks[track_id]["path"]
+            source_path = os.path.join(track_path / (track_path.name+ '_STEMS') / 'MUSDB'/ (track_path.name+ '_STEM_MUSDB_'+ source+ self.suffix))
+            audio, _ = sf.read(
+                source_path,
                 always_2d=True,
                 start=start_sample,
                 stop=stop_sample,
-                )
-                # convert to torch tensor
-                audio = torch.tensor(audio.T, dtype=torch.float)
-                
-                if list(audio.shape)[0] == 1:
-                    audio = audio.repeat(2,1)
-                    
-                # apply multitrack-wise augmentations
-                # audio = self.multitrack_augmentation(audio)
-                if max_len_source <= audio.size(dim=1):
-                    max_len_source = audio.size(dim=1)
-                source_multitrack[k] = audio
-                
-            # zero-padding to the maximum length of tensor
-            max_len.append(max_len_source)
-
-            # print("Max_length = ",max_len_source)
-            for key, value in source_multitrack.items():
-                if value.size(dim=1)==max_len_source:
-                    continue
-                else:
-                    # print("before zero-padding, value.size = ",value.size(dim=1))
-                    target = torch.zeros(2,max_len_source)
-                    source_len = value.size(dim=1)
-                    target[:,:source_len] = value
-                    source_multitrack[key] = target
-                    # print("after padding, len = ", source_multitrack[key].size(dim=1))
-
-
-            
-
-            # apply linear mix over all multitracks within one source index=0
-            source_mix = torch.stack(list(source_multitrack.values())).sum(0)
-            audio_sources[i] = source_mix
+            )
+            # convert to torch tensor
+            audio = torch.tensor(audio.T, dtype=torch.float)
             # apply source-wise augmentations
-            # source_mix = self.source_augmentations(source_mix)
+            audio = self.source_augmentations(audio)
+            audio_sources[source] = audio
 
-        # zero-padding to the maximum length of tensor, between different sources
-        
-
-        
-        for key, value in audio_sources.items():
-            if value.size(dim=1)==max(max_len):
-                continue
-            else:
-                # print("before zero-padding, value.size = ",value.size(dim=1))
-                target = torch.zeros(2,max(max_len))
-                source_len = value.size(dim=1)
-                target[:,:source_len] = value
-                audio_sources[key] = target
-                # print("after padding, len = ", source_multitrack[key].size(dim=1))
-
+        # apply linear mix over source index=0
         audio_mix = torch.stack(list(audio_sources.values())).sum(0)
         if self.targets:
             audio_sources = torch.stack(
                 [wav for src, wav in audio_sources.items() if src in self.targets], dim=0
-        )
-        # audio_mix a mixture over the sources, audio_sources is a concatenation of all sources
+            )
         return audio_mix, audio_sources
 
     def __len__(self):
@@ -285,57 +328,22 @@ class MS_21Dataset(torch.utils.data.Dataset):
         # p = Path(self.root)
         
         for track_path in tqdm.tqdm(p.iterdir()):
-            # print(track_path)
+            
             if track_path.is_dir():
-                if self.subset and track_path.stem not in self.subset:
+                n_src_dir = len(os.listdir(track_path / (track_path.name+ '_STEMS') / 'MUSDB'))
+                if n_src_dir != 4:
+                    #skip this track
+                    print(f"Exclude track due to lack of 4 standard musdb tracks, only {n_src_dir}, {track_path}")
+                    continue
+                if self.subset and track_path.name not in self.subset:
                     # skip this track
                     continue
-
+                # print(track_path)
                 
-                # source_paths = [track_path / (s + self.suffix) for s in self.sources] # 固定命名
+                source_paths = [track_path / (track_path.name+ '_STEMS') / 'MUSDB'/ (track_path.name+ '_STEM_MUSDB_'+ s + self.suffix) for s in self.sources] # 固定命名
                 
-                multitrack_paths = []
-                for s in os.listdir(track_path):
-                    if s.split('.')[-1]=='wav' and s.split('.')[0]!='':
-                        multitrack_paths.append(track_path / s )
-                
-
-                if not all(sp.exists() for sp in multitrack_paths):
-                    print("Exclude track due to non-existing multitrack file", track_path)
-                    continue
-                
-                sources = []
-                for i in self.grouping_info:
-                    # print(i) # get source names
-                    stem_tracks = []
-                    # get all instrument name within one stem
-                    for j in self.grouping_info[i]:
-                        # print(j)
-                        # get all multitrack filename within one instrument
-                        # get the corresponding song:
-                        track_title = str(track_path).split('\\')[-1]
-                        track_title = track_title.replace('_',' ')
-                        
-                        track_df = self.csv_info.loc[self.csv_info['Music_Title']==track_title]
-                        # print(track_df)
-                        if track_df.empty==True:
-                            print("This song doesn't exist in csv file", track_title)
-
-                        temp = track_df[j].tolist()[0]
-                        if temp != '[]':
-                            for m in temp.strip('[]').split(', '):
-                                # print(m.strip(''))
-                                stem_tracks.append(m.strip('\''))
-                    sources.append(len(stem_tracks))
-                if 0 in sources:
-                    source_name_list = ['drums','vocals','bass','other']
-                    
-                    print("Exclude track due to non-existing sources file", track_path, " missing ", source_name_list[sources.index(0)])
-                    continue
-
-
                 # get metadata
-                infos = list(map(sf.info, multitrack_paths))
+                infos = list(map(sf.info, source_paths))
                 if not all(i.samplerate == self.sample_rate for i in infos):
                     print("Exclude track due to different sample rate ", track_path)
                     continue
@@ -343,7 +351,6 @@ class MS_21Dataset(torch.utils.data.Dataset):
                 if self.segment is not None:
                     # get minimum duration of track
                     min_duration = min(i.duration for i in infos)
-                    # max_duration = max(i.duration for i in infos)
                     if min_duration > self.segment:
                         yield ({"path": track_path, "min_duration": min_duration})
                 else:

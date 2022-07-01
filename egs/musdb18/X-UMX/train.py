@@ -16,8 +16,8 @@ from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 
 from asteroid.engine.system import System
 from asteroid.engine.optimizers import make_optimizer
-from asteroid.models import XUMX
-from asteroid.models.x_umx import _STFT, _Spectrogram
+from models.x_umx import XUMX
+from models.x_umx import _STFT, _Spectrogram
 from asteroid.losses import singlesrc_mse
 from torch.nn.modules.loss import _Loss
 from torch import nn
@@ -26,7 +26,7 @@ from local import dataloader
 from pathlib import Path
 from operator import itemgetter
 
-CACHE = Path('local/statics_cache')
+CACHE = Path('./local/statics_cache')
 
 # Keys which are not in the conf.yml file can be added here.
 # In the hierarchical dictionary created when parsing, the key `key` can be
@@ -67,7 +67,7 @@ def get_statistics(args, dataset):
     return scaler.mean_, std
 
 
-def freq_domain_loss(s_hat, gt_spec, combination=True):
+def freq_domain_loss(s_hat, gt_spec, combination=True,nb_channels=2):
     """Calculate frequency-domain loss between estimated and reference spectrograms.
     MSE between target and estimated target spectrograms is adopted as frequency-domain loss.
     If you set ``loss_combine_sources: yes'' in conf.yml, computes loss for all possible
@@ -90,7 +90,7 @@ def freq_domain_loss(s_hat, gt_spec, combination=True):
     refrences = []
     for i, s in enumerate(s_hat):
         inferences.append(s)
-        refrences.append(gt_spec[..., 2 * i : 2 * i + 2, :])
+        refrences.append(gt_spec[..., nb_channels * i : nb_channels * i + nb_channels, :])
     assert inferences[0].shape == refrences[0].shape
 
     _loss_mse = 0.0
@@ -116,7 +116,7 @@ def freq_domain_loss(s_hat, gt_spec, combination=True):
     return _loss_mse
 
 
-def time_domain_loss(mix, time_hat, gt_time, combination=True):
+def time_domain_loss(mix, time_hat, gt_time, combination=True, nb_channels=2):
     """Calculate weighted time-domain loss between estimated and reference time signals.
     weighted SDR [1] between target and estimated target signals is adopted as time-domain loss.
     If you set ``loss_combine_sources: yes'' in conf.yml, computes loss for all possible
@@ -147,7 +147,7 @@ def time_domain_loss(mix, time_hat, gt_time, combination=True):
 
     # Prepare Data and Fix Shape
     mix_ref = [mix]
-    mix_ref.extend([gt_time[..., 2 * i : 2 * i + 2, :] for i in range(n_src)])
+    mix_ref.extend([gt_time[..., nb_channels * i : nb_channels * i + nb_channels, :] for i in range(n_src)])
     mix_ref = torch.stack(mix_ref)
     mix_ref = mix_ref.view(-1, time_length)
     time_hat = time_hat.view(n_batch * n_channel * time_hat.shape[0], time_hat.shape[-1])
@@ -256,6 +256,7 @@ class MultiDomainLoss(_Loss):
         )
         self._combi = loss_combine_sources
         self._multi = loss_use_multidomain
+        self.nb_channels = nb_channels
         self.coef = mix_coef
         print("Combination Loss: {}".format(self._combi))
         if self._multi:
@@ -282,16 +283,17 @@ class MultiDomainLoss(_Loss):
         # Fix shape and apply transformation of targets
         n_batch, n_src, n_channel, time_length = targets.shape
         targets = targets.view(n_batch, n_src * n_channel, time_length)
-        Y = self.transform(targets)[0]
+        Y_temp = self.transform(targets)
+        Y = Y_temp[0]
 
         if self._multi:
             n_src = spec_hat.shape[0]
-            mixture_t = sum([targets[:, 2 * i : 2 * i + 2, ...] for i in range(n_src)])
-            loss_f = freq_domain_loss(spec_hat, Y, combination=self._combi)
-            loss_t = time_domain_loss(mixture_t, time_hat, targets, combination=self._combi)
+            mixture_t = sum([targets[:, n_channel * i : n_channel * i + n_channel, ...] for i in range(n_src)])
+            loss_f = freq_domain_loss(spec_hat, Y, combination=self._combi, nb_channels=self.nb_channels)
+            loss_t = time_domain_loss(mixture_t, time_hat, targets, combination=self._combi, nb_channels=self.nb_channels)
             loss = float(self.coef) * loss_t + loss_f
         else:
-            loss = freq_domain_loss(spec_hat, Y, combination=self._combi)
+            loss = freq_domain_loss(spec_hat, Y, combination=self._combi, nb_channels=self.nb_channels)
 
         return loss
 
@@ -390,7 +392,7 @@ def main(conf, args):
         scaler_mean = None
         scaler_std = None
     else:
-        if args.ms21 == True:
+        if 'ms21' in args.train_dir:
             cache = CACHE / 'ms21'
         else:
             cache = CACHE / 'musdb'
@@ -520,8 +522,13 @@ if __name__ == "__main__":
     parser.add_argument('--disable-cuda', action='store_true')
  
     parser.add_argument('--load_model', '-lm', action='store_true' )
-    
-    config_model = sys.argv[2]
+    exp, exp_args = parser.parse_known_args()
+    # print(exp)
+    # print(exp_args)
+    config_model = exp.confg
+
+    load_model = exp.load_model
+    # config_model = sys.argv[2]
     with open(config_model) as f:
         def_conf = yaml.safe_load(f)
     parser = prepare_parser_from_dict(def_conf, parser=parser)

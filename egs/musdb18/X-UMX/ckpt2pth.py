@@ -497,7 +497,6 @@ def main(conf, args):
     # )
 
     device = torch.device(conf["main_args"]["device"])
-    # model = system.load_from_checkpoint(conf["main_args"]["checkpoint"])
     state_dict = torch.load(conf["main_args"]["checkpoint"], map_location=device)
     from collections import OrderedDict
     new_state_dict = OrderedDict()

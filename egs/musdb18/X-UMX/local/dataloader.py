@@ -68,7 +68,6 @@ def load_datasets(parser, args):
     # )
 
     train_dataset = MS_21Dataloader.MS_21Dataset( 
-        csv_file_path = 'D:\smc_master_thesis_2021\MTG_2021_MASTER_THESIS\mixing_secret_dataset_modified.csv',
         split="train",
         sources=args.sources,
         targets=args.sources,
@@ -92,11 +91,11 @@ def load_datasets(parser, args):
     #     **dataset_kwargs,
     # )
     valid_dataset = MS_21Dataloader.MS_21Dataset(
-        csv_file_path = 'D:\smc_master_thesis_2021\MTG_2021_MASTER_THESIS\mixing_secret_dataset_modified.csv',
-        split='train',
-        subset=ms_21_validation_tracks,
+        split='val',
+        subset=None,
         sources=args.sources,
         targets=args.sources,
+        sample_rate=args.sample_rate,
         segment=None,
         **dataset_kwargs,
     )
