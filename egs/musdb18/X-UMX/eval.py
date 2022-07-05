@@ -162,12 +162,12 @@ def inference_args(parser, remaining_args):
 
 def eval_main(
     root,
-    samplerate=44100,
+    samplerate=16000,
     niter=1,
     alpha=1.0,
     softmask=False,
     residual_model=False,
-    model_name="xumx",
+    model_name="xumx_ms21",
     outdir=None,
     start=0.0,
     duration=-1.0,
@@ -176,12 +176,12 @@ def eval_main(
 
     model_name = os.path.abspath(model_name)
     if not (os.path.exists(model_name)):
-        outdir = os.path.abspath("./results_using_pre-trained")
-        model_name = "r-sawata/XUMX_MUSDB18_music_separation"
+        outdir = os.path.abspath("./results_using_pre-trained_ms21")
+        model_name = f"r-sawata/XUMX_{root}_music_separation"
     else:
         outdir = os.path.join(
             os.path.abspath(outdir),
-            "EvaluateResults_musdb18_testdata",
+            f"EvaluateResults_{root}_testdata",
         )
     Path(outdir).mkdir(exist_ok=True, parents=True)
     print("Evaluated results will be saved in:\n {}".format(outdir), file=sys.stderr)
@@ -196,7 +196,10 @@ def eval_main(
     txtout = os.path.join(outdir, "results.txt")
     fp = open(txtout, "w")
     for track in test_dataset:
-        input_file = os.path.join(root, "test", track.name, "mixture.wav")
+        if 'ms21' in root:
+            input_file = os.path.join(root, 'test', track.name, track.name+'_MIX.wav')
+        else:
+            input_file = os.path.join(root, "test", track.name, "mixture.wav")
 
         # handling an input audio path
         info = sf.info(input_file)
