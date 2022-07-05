@@ -115,6 +115,10 @@ def separate(
 
     estimates = {}
     for j, name in enumerate(source_names):
+        if name == 'percussion':
+            name = 'drums'
+        elif name == 'vocal':
+            name = 'vocals'
         audio_hat = istft(
             Y[..., j].T,
             rate=x_umx_target.sample_rate,
