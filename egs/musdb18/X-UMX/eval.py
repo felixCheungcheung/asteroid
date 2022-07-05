@@ -181,11 +181,11 @@ def eval_main(
     model_name = os.path.abspath(model_name)
     if not (os.path.exists(model_name)):
         outdir = os.path.abspath("./results_using_pre-trained_ms21")
-        model_name = f"r-sawata/XUMX_{root}_music_separation"
+        model_name = "r-sawata/XUMX_ms21_music_separation"
     else:
         outdir = os.path.join(
             os.path.abspath(outdir),
-            f"EvaluateResults_{root}_testdata",
+            "EvaluateResults_ms21_testdata",
         )
     Path(outdir).mkdir(exist_ok=True, parents=True)
     print("Evaluated results will be saved in:\n {}".format(outdir), file=sys.stderr)
