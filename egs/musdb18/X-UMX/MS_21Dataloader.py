@@ -93,7 +93,8 @@ class MS_21Dataset(torch.utils.data.Dataset):
     def __init__(
         self,
         root,
-        sources=["vocal", "bass", "percussion", "other"],
+        sources=["bass", "percussion", "vocal", "other"], 
+        # the other should be the same in conf.yml
         targets=None,
         suffix=".wav",
         split="train",

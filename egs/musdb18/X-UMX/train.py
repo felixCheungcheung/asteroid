@@ -378,7 +378,7 @@ def main(conf, args):
     exp_dir.mkdir(parents=True, exist_ok=True)
 
     # Load Datasets
-    train_dataset, valid_dataset = dataloader.load_datasets(parser, args)
+    train_dataset, valid_dataset, _ = dataloader.load_datasets(parser, args)
     dataloader_kwargs = (
         {"num_workers": args.num_workers, "pin_memory": True} if torch.cuda.is_available() else {}
     )

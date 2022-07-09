@@ -1,20 +1,30 @@
+import json
+import random
 import torch
 import numpy as np
 import argparse
 import soundfile as sf
-import musdb
-import museval
+# import musdb
+# musdb package is stem based, can not read hq
+# import museval
 import norbert
 from pathlib import Path
 import scipy.signal
 import resampy
 from asteroid.models import XUMX
 from asteroid.complex_nn import torch_complex_from_magphase
+from asteroid.metrics import get_metrics
 import os
 import warnings
 import sys
+import pandas as pd
+import torchaudio
+import tqdm
+import MS_21Dataloader
 
 os.environ['KMP_DUPLICATE_LIB_OK']='True'
+COMPUTE_METRICS = ["si_sdr", "sdr", "sir", "sar", "stoi"]
+
 
 def load_model(model_name, device="cpu"):
     print("Loading model from: {}".format(model_name), file=sys.stderr)
@@ -83,6 +93,7 @@ def separate(
 
     # convert numpy audio to torch
     audio_torch = torch.tensor(audio.T[None, ...]).float().to(device)
+    audio_len = audio_torch.shape[-1]
 
     source_names = []
     V = []
@@ -113,19 +124,18 @@ def separate(
 
     Y = norbert.wiener(V, X.astype(np.complex128), niter, use_softmask=softmask)
 
-    estimates = {}
+    estimates = []
     for j, name in enumerate(source_names):
-        # if name == 'percussion':
-        #     name = 'drums'
-        # elif name == 'vocal':
-        #     name = 'vocals'
         audio_hat = istft(
             Y[..., j].T,
             rate=x_umx_target.sample_rate,
             n_fft=x_umx_target.in_chan,
             n_hopsize=x_umx_target.n_hop,
         )
-        estimates[name] = audio_hat.T
+        pad_len = abs(audio_hat.shape[1] - audio_len)
+        if pad_len !=0:
+            audio_pad = np.pad(audio_hat.squeeze(), (0,pad_len),'linear_ramp', end_values=(0,0))
+        estimates.append(audio_pad.T)
 
     return estimates
 
@@ -151,40 +161,54 @@ def inference_args(parser, remaining_args):
     inf_parser.add_argument(
         "--niter", type=int, default=1, help="number of iterations for refining results."
     )
+    
+    inf_parser.add_argument(
+        "--num_workers", type=int, default=6, help="number of workers."
+    )
 
     inf_parser.add_argument(
         "--alpha", type=float, default=1.0, help="exponent in case of softmask separation"
     )
 
-    inf_parser.add_argument("--samplerate", type=int, default=44100, help="model samplerate")
+    inf_parser.add_argument("--samplerate", type=int, default=16000, help="model samplerate")
 
     inf_parser.add_argument(
-        "--residual-model", action="store_true", help="create a model for the residual"
+        "--residual_model", action="store_true", help="create a model for the residual"
     )
     return inf_parser.parse_args()
 
 
-def eval_main(
-    root,
-    samplerate=16000,
-    niter=1,
-    alpha=1.0,
-    softmask=False,
-    residual_model=False,
-    model_name="xumx_ms21",
-    outdir=None,
-    start=0.0,
-    duration=-1.0,
-    no_cuda=False,
-):
+def eval_main(parser, args):
+    samplerate=args.samplerate,
+    no_cuda=args.no_cuda,
+    source_names = args.sources
+    dataloader_kwargs = (
+            {"num_workers": args.num_workers, "pin_memory": True} if not no_cuda else {}
+        )
+    test_dataset = MS_21Dataloader.MS_21Dataset(
+        split='test',
+        subset=None,
+        sources=args.sources,
+        targets=args.sources,
+        sample_rate=args.samplerate,
+        segment=args.duration,
+        root=args.train_dir,
+    )
+    
+    # Randomly choose the indexes of sentences to save.
+    save_idx = random.sample(range(len(test_dataset)),len(test_dataset))
+    series_list = []
 
-    model_name = os.path.abspath(model_name)
-    if not (os.path.exists(model_name)):
+    model_path = os.path.join(args.outdir, "best_model.pth")
+
+    model_path = os.path.abspath(model_path)
+
+    if not (os.path.exists(model_path)):
         outdir = os.path.abspath("./results_using_pre-trained_ms21")
-        model_name = "r-sawata/XUMX_ms21_music_separation"
+        model_path = "r-sawata/XUMX_ms21_music_separation"
     else:
         outdir = os.path.join(
-            os.path.abspath(outdir),
+            os.path.abspath(args.outdir),
             "EvaluateResults_ms21_testdata",
         )
     Path(outdir).mkdir(exist_ok=True, parents=True)
@@ -192,81 +216,142 @@ def eval_main(
 
     use_cuda = not no_cuda and torch.cuda.is_available()
     device = torch.device("cuda" if use_cuda else "cpu")
-    model, instruments = load_model(model_name, device)
+    model, instruments = load_model(model_path, device)
 
-    test_dataset = musdb.DB(root=root, subsets="test", is_wav=True)
-    results = museval.EvalStore()
+    # test_dataset = musdb.DB(root=root, subsets="test", is_wav=True)
+    # results = museval.EvalStore()
     Path(outdir).mkdir(exist_ok=True, parents=True)
     txtout = os.path.join(outdir, "results.txt")
     fp = open(txtout, "w")
-    for track in test_dataset:
-        if 'ms21' in root:
-            input_file = os.path.join(root, 'test', track.name, track.name+'_MIX.wav')
-        else:
-            input_file = os.path.join(root, "test", track.name, "mixture.wav")
+    for idx in range(len(test_dataset)):
+        # Forward the network on the mixture.
+        audio, ground_truths = test_dataset[idx]
+        audio = audio.T.numpy()
+        ground_truths = ground_truths.numpy().squeeze()
+        # if 'ms21' in root:
+        #     input_file = os.path.join(root, 'test', track, track+'_MIX.wav')
+        #     # handling an input audio path
+        #     info = sf.info(input_file)
+        #     start = int(start * info.samplerate)
+        #     # check if dur is none
+        #     if duration > 0:
+        #         # stop in soundfile is calc in samples, not seconds
+        #         stop = start + int(duration * info.samplerate)
+        #     else:
+        #         # set to None for reading complete file
+        #         stop = None
 
-        # handling an input audio path
-        info = sf.info(input_file)
-        start = int(start * info.samplerate)
-        # check if dur is none
-        if duration > 0:
-            # stop in soundfile is calc in samples, not seconds
-            stop = start + int(duration * info.samplerate)
-        else:
-            # set to None for reading complete file
-            stop = None
+        #     audio, rate = sf.read(input_file, always_2d=True, start=start, stop=stop)
+        #     source_names = ['bass', 'percussion', 'vocal', 'other']
+        #     ground_truths = []
+        #     for source_name in source_names:
+        #         sc, sr = sf.read(os.path.join(root, 'test', track, track+'_STEMS', 'MUSDB',track+'_STEM_MUSDB_'+source_name+'.wav'), always_2d=False, start=start, stop=stop)
+        #         ground_truths.append(sc)
+            
+        # else:
+        #     input_file = os.path.join(root, "test", track, "mixture.wav")
+        #     # handling an input audio path
+        #     info = sf.info(input_file)
+        #     start = int(start * info.samplerate)
+        #     # check if dur is none
+        #     if duration > 0:
+        #         # stop in soundfile is calc in samples, not seconds
+        #         stop = start + int(duration * info.samplerate)
+        #     else:
+        #         # set to None for reading complete file
+        #         stop = None
 
-        audio, rate = sf.read(input_file, always_2d=True, start=start, stop=stop)
+        #     audio, rate = sf.read(input_file, always_2d=True, start=start, stop=stop)
+        #     source_names = ['bass', 'drums', 'vocals', 'other']
+        #     ground_truths = []
+        #     for source_name in source_names:
+        #         sc, sr = sf.read(os.path.join(root, 'test', track, track+'_STEMS', 'MUSDB',track+'_STEM_MUSDB_'+source_name+'.wav'), always_2d=False, start=start, stop=stop)
+        #         ground_truths.append(sc)
+
+
 
         if audio.shape[1] > 2:
             warnings.warn("Channel count > 2! " "Only the first two channels will be processed!")
             audio = audio[:, :2]
 
-        if rate != samplerate:
-            # resample to model samplerate if needed
-            audio = resampy.resample(audio, rate, samplerate, axis=0)
+        # if rate != samplerate:
+        #     # resample to model samplerate if needed
+        #     audio = resampy.resample(audio, rate, samplerate, axis=0)
 
-        if audio.shape[1] == 1:
-            # if we have mono, let's duplicate it
-            # as the input of OpenUnmix is always stereo
-            audio = np.repeat(audio, 2, axis=1)
+        # if audio.shape[1] == 1:
+        #     # if we have mono, let's duplicate it
+        #     # as the input of OpenUnmix is always stereo
+        #     audio = np.repeat(audio, 2, axis=1)
 
         estimates = separate(
             audio,
             model,
             instruments,
-            niter=niter,
-            alpha=alpha,
-            softmask=softmask,
-            residual_model=residual_model,
+            niter=args.niter,
+            alpha=args.alpha,
+            softmask=args.softmask,
+            residual_model=args.residual_model,
             device=device,
         )
 
-        output_path = Path(os.path.join(outdir, track.name))
-        output_path.mkdir(exist_ok=True, parents=True)
 
-        print("Processing... {}".format(track.name), file=sys.stderr)
-        print(track.name, file=fp)
-        for target, estimate in estimates.items():
-            sf.write(str(output_path / Path(target).with_suffix(".wav")), estimate, samplerate)
-        track_scores = museval.eval_mus_track(track, estimates)
-        results.add_track(track_scores.df)
-        print(track_scores, file=sys.stderr)
-        print(track_scores, file=fp)
-    print(results, file=sys.stderr)
-    print(results, file=fp)
-    results.save(os.path.join(outdir, "results.pandas"))
-    results.frames_agg = "mean"
-    print(results, file=sys.stderr)
-    print(results, file=fp)
-    fp.close()
+        utt_metrics = get_metrics(audio.T, ground_truths, np.stack(estimates), sample_rate=16000, metrics_list=COMPUTE_METRICS, average=False, ignore_metrics_errors=True)
+
+        series_list.append(pd.Series(utt_metrics))
+
+        # Save some examples in a folder. Wav files and metrics as text.
+        if idx in save_idx:
+            local_save_dir = os.path.join(outdir, "ex_{}/".format(idx + 1))
+            os.makedirs(local_save_dir, exist_ok=True)
+            sf.write(
+                local_save_dir + "mixture.wav",
+                audio,
+                args.samplerate
+            )
+            # Loop over the sources and estimates
+            for src_idx, src in enumerate(ground_truths):
+                sf.write(
+                    local_save_dir + "s{}.wav".format(src_idx),
+                    src,
+                    args.samplerate
+                )
+            for src_idx, est_src in enumerate(estimates):
+                est_src *= np.max(np.abs(audio)) / np.max(np.abs(est_src))
+                sf.write(
+                    local_save_dir + "s{}_estimate.wav".format(src_idx),
+                    est_src,
+                    args.samplerate
+                )
+
+        # Write local metrics to the example folder.
+        with open(local_save_dir + "metrics.json", "w") as f:
+            json.dump({k:v.tolist() for k,v in utt_metrics.items()}, f, indent=0)
+
+
+    # Save all metrics to the experiment folder.
+    all_metrics_df = pd.DataFrame(series_list)
+    all_metrics_df.to_csv(os.path.join(outdir, "all_metrics.csv"))
+
+    # Print and save summary metrics
+    final_results = {}
+    for metric_name in COMPUTE_METRICS:
+        input_metric_name = "input_" + metric_name
+        ldf = all_metrics_df[metric_name] - all_metrics_df[input_metric_name]
+        final_results[metric_name] = all_metrics_df[metric_name].mean()
+        final_results[metric_name + "_imp"] = ldf.mean()
+
+    print("Overall metrics :")
+    print(final_results)
+
+    with open(os.path.join(outdir, "final_metrics.json"), "w") as f:
+        json.dump({k:v.tolist() for k,v in final_results.items()}, f, indent=0)
 
 
 if __name__ == "__main__":
     # Training settings
     parser = argparse.ArgumentParser(description="OSU Inference", add_help=False)
 
-    parser.add_argument("--root", type=str, help="The path to the MUSDB18 dataset")
+    parser.add_argument("--train_dir", type=str, default='E:/ms21_DB', help="The path to the MUSDB18 dataset")
 
     parser.add_argument(
         "--outdir",
@@ -285,6 +370,12 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
+        "--sources",        
+        type=list,
+        default=["bass", "percussion", "vocal", "other"],
+        help="Target Source Types",
+    )
+    parser.add_argument(
         "--no-cuda", action="store_true", default=False, help="disables CUDA inference"
     )
 
@@ -292,16 +383,4 @@ if __name__ == "__main__":
     args = inference_args(parser, args)
 
     model = os.path.join(args.outdir, "best_model.pth")
-    eval_main(
-        root=args.root,
-        samplerate=args.samplerate,
-        alpha=args.alpha,
-        softmask=args.softmask,
-        niter=args.niter,
-        residual_model=args.residual_model,
-        model_name=model,
-        outdir=args.outdir,
-        start=args.start,
-        duration=args.duration,
-        no_cuda=args.no_cuda,
-    )
+    eval_main(parser, args)
