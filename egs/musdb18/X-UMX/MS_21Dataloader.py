@@ -372,7 +372,7 @@ class MS_21Dataset(torch.utils.data.Dataset):
                 # get metadata
                 infos = list(map(sf.info, source_paths))
                 if not all(i.samplerate == self.sample_rate for i in infos):
-                    print(infos[0].samplerate, self.sample_rate)
+                    print(infos[:].samplerate, self.sample_rate)
                     print("Exclude track due to different sample rate ", track_path)
                     continue
 
