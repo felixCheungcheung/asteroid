@@ -223,7 +223,7 @@ def eval_main(parser, args):
     Path(outdir).mkdir(exist_ok=True, parents=True)
     txtout = os.path.join(outdir, "results.txt")
     fp = open(txtout, "w")
-    for idx in range(len(test_dataset)):
+    for idx in tqdm(range(len(test_dataset))):
         # Forward the network on the mixture.
         audio, ground_truths = test_dataset[idx]
         audio = audio.T.numpy()
@@ -295,7 +295,7 @@ def eval_main(parser, args):
         )
 
 
-        utt_metrics = get_metrics(audio.T, ground_truths, np.stack(estimates), sample_rate=16000, metrics_list=COMPUTE_METRICS, average=False, ignore_metrics_errors=True)
+        utt_metrics = get_metrics(audio.T, ground_truths, np.stack(estimates), sample_rate=16000, metrics_list=COMPUTE_METRICS, average=False)
 
         series_list.append(pd.Series(utt_metrics))
 
