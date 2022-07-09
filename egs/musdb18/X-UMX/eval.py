@@ -179,12 +179,7 @@ def inference_args(parser, remaining_args):
 
 
 def eval_main(parser, args):
-    samplerate=args.samplerate,
-    no_cuda=args.no_cuda,
-    source_names = args.sources
-    dataloader_kwargs = (
-            {"num_workers": args.num_workers, "pin_memory": True} if not no_cuda else {}
-        )
+    no_cuda=args.no_cuda
     test_dataset = MS_21Dataloader.MS_21Dataset(
         split='test',
         subset=None,
@@ -376,7 +371,7 @@ if __name__ == "__main__":
         help="Target Source Types",
     )
     parser.add_argument(
-        "--no-cuda", action="store_true", default=False, help="disables CUDA inference"
+        "--no_cuda", action="store_true", default=False, help="disables CUDA inference"
     )
 
     args, _ = parser.parse_known_args()
