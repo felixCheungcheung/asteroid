@@ -170,7 +170,7 @@ def inference_args(parser, remaining_args):
         "--alpha", type=float, default=1.0, help="exponent in case of softmask separation"
     )
 
-    inf_parser.add_argument("--samplerate", type=int, default=16000, help="model samplerate")
+    inf_parser.add_argument("--samplerate", type=int, default=44100, help="model samplerate")
 
     inf_parser.add_argument(
         "--residual_model", action="store_true", help="create a model for the residual"
@@ -204,7 +204,7 @@ def eval_main(parser, args):
     else:
         outdir = os.path.join(
             os.path.abspath(args.outdir),
-            "EvaluateResults_ms21_testdata",
+            "EvaluateResults_musdb18_testdata",
         )
     Path(outdir).mkdir(exist_ok=True, parents=True)
     print("Evaluated results will be saved in:\n {}".format(outdir), file=sys.stderr)
@@ -277,6 +277,11 @@ def eval_main(parser, args):
         #     # if we have mono, let's duplicate it
         #     # as the input of OpenUnmix is always stereo
         #     audio = np.repeat(audio, 2, axis=1)
+        if audio.shape[1] == 2:
+            # if we have mono, let's duplicate it
+            # as the input of OpenUnmix is always stereo
+            audio = audio.sum(axis=1) / 2
+            audio = np.expand_dims(audio, axis=1)
 
         estimates = separate(
             audio,

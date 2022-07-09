@@ -10,6 +10,7 @@ import torch
 import tqdm
 import soundfile as sf
 import os
+import numpy as np
 # import musedb
 
 class MS_21Dataset(torch.utils.data.Dataset):
@@ -298,13 +299,27 @@ class MS_21Dataset(torch.utils.data.Dataset):
 
             # load actual audio
             track_path = self.tracks[track_id]["path"]
-            source_path = os.path.join(track_path / (track_path.name+ '_STEMS') / 'MUSDB'/ (track_path.name+ '_STEM_MUSDB_'+ source+ self.suffix))
+
+            if 'musdb' in self.root.name:
+                mus_source = source
+                if mus_source == 'percussion':
+                    mus_source = 'drums'
+                elif mus_source == 'vocal':
+                    mus_source = 'vocals'
+                source_path = os.path.join(track_path / (mus_source +  self.suffix))
+            else:
+                source_path = os.path.join(track_path / (track_path.name+ '_STEMS') / 'MUSDB'/ (track_path.name+ '_STEM_MUSDB_'+ source+ self.suffix))
             audio, _ = sf.read(
                 source_path,
                 always_2d=True,
                 start=start_sample,
                 stop=stop_sample,
             )
+            if audio.shape[1] == 2:
+                # if we have mono, let's duplicate it
+                # as the input of OpenUnmix is always stereo
+                audio = audio.sum(axis=1) / 2
+                audio = np.expand_dims(audio, axis=1)
             # convert to torch tensor
             audio = torch.tensor(audio.T, dtype=torch.float)
             # apply source-wise augmentations
@@ -331,18 +346,29 @@ class MS_21Dataset(torch.utils.data.Dataset):
         for track_path in tqdm.tqdm(p.iterdir()):
             
             if track_path.is_dir():
-                n_src_dir = len(os.listdir(track_path / (track_path.name+ '_STEMS') / 'MUSDB'))
-                if n_src_dir != 4:
-                    #skip this track
-                    print(f"Exclude track due to lack of 4 standard musdb tracks, only {n_src_dir}, {track_path}")
-                    continue
-                if self.subset and track_path.name not in self.subset:
-                    # skip this track
-                    continue
-                # print(track_path)
-                
-                source_paths = [track_path / (track_path.name+ '_STEMS') / 'MUSDB'/ (track_path.name+ '_STEM_MUSDB_'+ s + self.suffix) for s in self.sources] # 固定命名
-                
+                if 'musdb' in self.root.name:
+                    musdb_sources = []
+                    for s in self.sources:
+                        if s == 'percussion':
+                            s = 'drums'
+                        elif s == 'vocal':
+                            s = 'vocals'
+                        musdb_sources.append(s)
+                    source_paths = [track_path / ( s + self.suffix) for s in musdb_sources] # 固定命名
+                    
+                else:
+                    n_src_dir = len(os.listdir(track_path / (track_path.name+ '_STEMS') / 'MUSDB'))
+                    if n_src_dir != 4:
+                        #skip this track
+                        print(f"Exclude track due to lack of 4 standard musdb tracks, only {n_src_dir}, {track_path}")
+                        continue
+                    if self.subset and track_path.name not in self.subset:
+                        # skip this track
+                        continue
+                    # print(track_path)
+                    
+                    source_paths = [track_path / (track_path.name+ '_STEMS') / 'MUSDB'/ (track_path.name+ '_STEM_MUSDB_'+ s + self.suffix) for s in self.sources] # 固定命名
+                    
                 # get metadata
                 infos = list(map(sf.info, source_paths))
                 if not all(i.samplerate == self.sample_rate for i in infos):
