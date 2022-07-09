@@ -19,7 +19,7 @@ import warnings
 import sys
 import pandas as pd
 import torchaudio
-import tqdm
+from tqdm import tqdm
 import MS_21Dataloader
 
 os.environ['KMP_DUPLICATE_LIB_OK']='True'
