@@ -23,7 +23,7 @@ from tqdm import tqdm
 import MS_21Dataloader
 
 os.environ['KMP_DUPLICATE_LIB_OK']='True'
-COMPUTE_METRICS = ["si_sdr", "sdr", "sir", "sar", "stoi"]
+COMPUTE_METRICS = ["si_sdr", "sdr", "sir", "sar"]
 
 
 def load_model(model_name, device="cpu"):
