@@ -11,6 +11,7 @@ import tqdm
 import soundfile as sf
 import os
 import numpy as np
+import resampy
 # import musedb
 
 class MS_21Dataset(torch.utils.data.Dataset):
@@ -309,7 +310,7 @@ class MS_21Dataset(torch.utils.data.Dataset):
                 source_path = os.path.join(track_path / (mus_source +  self.suffix))
             else:
                 source_path = os.path.join(track_path / (track_path.name+ '_STEMS') / 'MUSDB'/ (track_path.name+ '_STEM_MUSDB_'+ source+ self.suffix))
-            audio, _ = sf.read(
+            audio, rate = sf.read(
                 source_path,
                 always_2d=True,
                 start=start_sample,
@@ -320,6 +321,10 @@ class MS_21Dataset(torch.utils.data.Dataset):
                 # as the input of OpenUnmix is always stereo
                 audio = audio.sum(axis=1) / 2
                 audio = np.expand_dims(audio, axis=1)
+            if rate != self.sample_rate:
+                # resample to model samplerate if needed
+                audio = resampy.resample(audio, rate, self.sample_rate, axis=0)
+
             # convert to torch tensor
             audio = torch.tensor(audio.T, dtype=torch.float)
             # apply source-wise augmentations
