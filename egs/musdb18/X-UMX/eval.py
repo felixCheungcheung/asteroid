@@ -41,6 +41,105 @@ def istft(X, rate=44100, n_fft=4096, n_hopsize=1024):
     return audio
 
 
+# def separate(
+#     audio,
+#     x_umx_target,
+#     instruments,
+#     niter=1,
+#     softmask=False,
+#     alpha=1.0,
+#     residual_model=False,
+#     device="cpu",
+# ):
+#     """
+#     Performing the separation on audio input
+
+#     Parameters
+#     ----------
+#     audio: np.ndarray [shape=(nb_samples, nb_channels, nb_timesteps)]
+#         mixture audio
+
+#     x_umx_target: asteroid.models
+#         X-UMX model used for separating
+
+#     instruments: list
+#         The list of instruments, e.g., ["bass", "drums", "vocals"]
+
+#     niter: int
+#          Number of EM steps for refining initial estimates in a
+#          post-processing stage, defaults to 1.
+
+#     softmask: boolean
+#         if activated, then the initial estimates for the sources will
+#         be obtained through a ratio mask of the mixture STFT, and not
+#         by using the default behavior of reconstructing waveforms
+#         by using the mixture phase, defaults to False
+
+#     alpha: float
+#         changes the exponent to use for building ratio masks, defaults to 1.0
+
+#     residual_model: boolean
+#         computes a residual target, for custom separation scenarios
+#         when not all targets are available, defaults to False
+
+#     device: str
+#         set torch device. Defaults to `cpu`.
+
+#     Returns
+#     -------
+#     estimates: `dict` [`str`, `np.ndarray`]
+#         dictionary with all estimates obtained by the separation model.
+#     """
+
+#     # convert numpy audio to torch
+#     audio_torch = torch.tensor(audio.T[None, ...]).float().to(device)
+#     audio_len = audio_torch.shape[-1]
+
+#     source_names = []
+#     V = []
+
+#     masked_tf_rep, _ = x_umx_target(audio_torch)
+#     # shape: (Sources, frames, batch, channels, fbin)
+
+#     for j, target in enumerate(instruments):
+#         Vj = masked_tf_rep[j, Ellipsis].cpu().detach().numpy()
+#         if softmask:
+#             # only exponentiate the model if we use softmask
+#             Vj = Vj ** alpha
+#         # output is nb_frames, nb_samples, nb_channels, nb_bins
+#         V.append(Vj[:, 0, Ellipsis])  # remove sample dim
+#         source_names += [target]
+
+#     V = np.transpose(np.array(V), (1, 3, 2, 0))
+
+#     # convert to complex numpy type
+#     tmp = x_umx_target.encoder(audio_torch)
+#     X = torch_complex_from_magphase(tmp[0].permute(1, 2, 3, 0), tmp[1])
+#     X = X.detach().cpu().numpy()
+#     X = X[0].transpose(2, 1, 0)
+
+#     if residual_model or len(instruments) == 1:
+#         V = norbert.residual_model(V, X, alpha if softmask else 1)
+#         source_names += ["residual"] if len(instruments) > 1 else ["accompaniment"]
+
+#     Y = norbert.wiener(V, X.astype(np.complex128), niter, use_softmask=softmask)
+
+#     estimates = []
+#     for j, name in enumerate(source_names):
+#         audio_hat = istft(
+#             Y[..., j].T,
+#             rate=x_umx_target.sample_rate,
+#             n_fft=x_umx_target.in_chan,
+#             n_hopsize=x_umx_target.n_hop,
+#         )
+#         pad_len = abs(audio_hat.shape[1] - audio_len)
+#         if pad_len !=0:
+#             audio_pad = np.pad(audio_hat.squeeze(), (0,pad_len),'linear_ramp', end_values=(0,0))
+#         estimates.append(audio_pad.T)
+
+#     return estimates
+
+
 def separate(
     audio,
     x_umx_target,
@@ -53,38 +152,29 @@ def separate(
 ):
     """
     Performing the separation on audio input
-
     Parameters
     ----------
     audio: np.ndarray [shape=(nb_samples, nb_channels, nb_timesteps)]
         mixture audio
-
     x_umx_target: asteroid.models
         X-UMX model used for separating
-
     instruments: list
         The list of instruments, e.g., ["bass", "drums", "vocals"]
-
     niter: int
          Number of EM steps for refining initial estimates in a
          post-processing stage, defaults to 1.
-
     softmask: boolean
         if activated, then the initial estimates for the sources will
         be obtained through a ratio mask of the mixture STFT, and not
         by using the default behavior of reconstructing waveforms
         by using the mixture phase, defaults to False
-
     alpha: float
         changes the exponent to use for building ratio masks, defaults to 1.0
-
     residual_model: boolean
         computes a residual target, for custom separation scenarios
         when not all targets are available, defaults to False
-
     device: str
         set torch device. Defaults to `cpu`.
-
     Returns
     -------
     estimates: `dict` [`str`, `np.ndarray`]
@@ -93,7 +183,6 @@ def separate(
 
     # convert numpy audio to torch
     audio_torch = torch.tensor(audio.T[None, ...]).float().to(device)
-    audio_len = audio_torch.shape[-1]
 
     source_names = []
     V = []
@@ -105,7 +194,7 @@ def separate(
         Vj = masked_tf_rep[j, Ellipsis].cpu().detach().numpy()
         if softmask:
             # only exponentiate the model if we use softmask
-            Vj = Vj ** alpha
+            Vj = Vj**alpha
         # output is nb_frames, nb_samples, nb_channels, nb_bins
         V.append(Vj[:, 0, Ellipsis])  # remove sample dim
         source_names += [target]
@@ -124,7 +213,7 @@ def separate(
 
     Y = norbert.wiener(V, X.astype(np.complex128), niter, use_softmask=softmask)
 
-    estimates = []
+    estimates = {}
     for j, name in enumerate(source_names):
         audio_hat = istft(
             Y[..., j].T,
@@ -132,10 +221,7 @@ def separate(
             n_fft=x_umx_target.in_chan,
             n_hopsize=x_umx_target.n_hop,
         )
-        pad_len = abs(audio_hat.shape[1] - audio_len)
-        if pad_len !=0:
-            audio_pad = np.pad(audio_hat.squeeze(), (0,pad_len),'linear_ramp', end_values=(0,0))
-        estimates.append(audio_pad.T)
+        estimates[name] = audio_hat.T
 
     return estimates
 
@@ -170,7 +256,7 @@ def inference_args(parser, remaining_args):
         "--alpha", type=float, default=1.0, help="exponent in case of softmask separation"
     )
 
-    inf_parser.add_argument("--samplerate", type=int, default=44100, help="model samplerate")
+    inf_parser.add_argument("--samplerate", type=int, default=16000, help="model samplerate")
 
     inf_parser.add_argument(
         "--residual_model", action="store_true", help="create a model for the residual"
@@ -194,17 +280,20 @@ def eval_main(parser, args):
     save_idx = random.sample(range(len(test_dataset)),len(test_dataset))
     series_list = []
 
-    model_path = os.path.join(args.outdir, "best_model.pth")
-
+    if args.pretrained_type == 'ms21':
+        model_path = os.path.join(args.outdir, 'best_model.pth')
+    else:
+        model_path = os.path.join(args.outdir, "pretrained_xumx_musdb18HQ.pth")
+    
     model_path = os.path.abspath(model_path)
 
     if not (os.path.exists(model_path)):
-        outdir = os.path.abspath("./results_using_pre-trained_ms21")
+        outdir = os.path.abspath("./results_using_pretrained_xumx_musdb18HQ")
         model_path = "r-sawata/XUMX_ms21_music_separation"
     else:
         outdir = os.path.join(
             os.path.abspath(args.outdir),
-            "EvaluateResults_musdb18_testdata",
+            f"EvaluateResults_{args.pretrained_type}_testdata",
         )
     Path(outdir).mkdir(exist_ok=True, parents=True)
     print("Evaluated results will be saved in:\n {}".format(outdir), file=sys.stderr)
@@ -295,7 +384,7 @@ def eval_main(parser, args):
         )
 
 
-        utt_metrics = get_metrics(audio.T, ground_truths, np.stack(estimates), sample_rate=16000, metrics_list=COMPUTE_METRICS, average=False)
+        utt_metrics = get_metrics(audio.T, ground_truths, np.stack(estimates), sample_rate=44100, metrics_list=COMPUTE_METRICS, average=False)
 
         series_list.append(pd.Series(utt_metrics))
 
@@ -351,7 +440,7 @@ if __name__ == "__main__":
     # Training settings
     parser = argparse.ArgumentParser(description="OSU Inference", add_help=False)
 
-    parser.add_argument("--train_dir", type=str, default='E:/ms21_DB', help="The path to the MUSDB18 dataset")
+    parser.add_argument("--train_dir", type=str, default='E:/ms21hq_DB_temp', help="The path to the MUSDB18 dataset")
 
     parser.add_argument(
         "--outdir",
@@ -359,6 +448,8 @@ if __name__ == "__main__":
         default="./results_using_pre-trained",
         help="Results path where " "best_model.pth" " is stored",
     )
+
+    parser.add_argument("--pretrained_type", type=str, default='musdb18', help="The default pretrained model trained on MUSDB18 dataset")
 
     parser.add_argument("--start", type=float, default=0.0, help="Audio chunk start in seconds")
 
@@ -375,6 +466,7 @@ if __name__ == "__main__":
         default=["bass", "percussion", "vocal", "other"],
         help="Target Source Types",
     )
+    
     parser.add_argument(
         "--no_cuda", action="store_true", default=False, help="disables CUDA inference"
     )
@@ -382,5 +474,5 @@ if __name__ == "__main__":
     args, _ = parser.parse_known_args()
     args = inference_args(parser, args)
 
-    model = os.path.join(args.outdir, "best_model.pth")
+
     eval_main(parser, args)
