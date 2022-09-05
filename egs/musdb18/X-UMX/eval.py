@@ -396,17 +396,17 @@ def eval_main(parser, args):
             device=device,
         )
         estimates_eval_np = np.zeros((len(args.sources), audio.shape[0]))
-        gt_eval_np = np.zeros((len(args.sources), audio.shape[0]))
+
+        # gt_eval_np = np.zeros((len(args.sources), audio.shape[0]))
+        gt_eval_np = ground_truths.sum(axis = 1)
+        
         for i, sc_name in enumerate(args.sources):
             
-            # gt_np = np.zeros_like(, audio[0])
-            
-            gt_eval_np[i,:ground_truths[i].shape[0]] = ground_truths[i].sum(axis = 1)
             estimates_eval_np[i,:estimates[sc_name].shape[0]] = estimates[sc_name].sum(axis = 1) # summing to mono for evaluation
 
         # get_metrics only accept mono for each source
 
-        utt_metrics = get_metrics(audio.sum(axis=1), gt_eval_np, estimates_eval_np , sample_rate=44100, metrics_list=COMPUTE_METRICS, average=False)
+        utt_metrics = get_metrics(audio.sum(axis=1), gt_eval_np, estimates_eval_np, sample_rate=44100, metrics_list=COMPUTE_METRICS, average=False)
 
         series_list.append(pd.Series(utt_metrics))
 
@@ -420,10 +420,10 @@ def eval_main(parser, args):
                 args.samplerate
             )
             # Loop over the sources and estimates
-            for src_idx, src in enumerate(ground_truths):
+            for src_idx, src in enumerate(gt_eval_np):
                 sf.write(
                     local_save_dir + "{}.wav".format(ms21_sources[src_idx]),
-                    src.T,
+                    src,
                     args.samplerate
                 )
             for src_idx, est_src in estimates.items():
