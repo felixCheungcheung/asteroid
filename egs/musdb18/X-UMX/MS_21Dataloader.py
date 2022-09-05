@@ -316,19 +316,24 @@ class MS_21Dataset(torch.utils.data.Dataset):
                 start=start_sample,
                 stop=stop_sample,
             )
-            if audio.shape[1] == 2:
+            # if audio.shape[1] == 2:
+            #     # if we have mono, let's duplicate it
+            #     # as the input of OpenUnmix is always stereo
+            #     audio = audio.sum(axis=1) / 2
+            #     audio = np.expand_dims(audio, axis=1)
+            if audio.shape[1] == 1:
                 # if we have mono, let's duplicate it
                 # as the input of OpenUnmix is always stereo
-                audio = audio.sum(axis=1) / 2
-                audio = np.expand_dims(audio, axis=1)
+                audio = np.repeat(audio, 2, axis=1)
             if rate != self.sample_rate:
                 # resample to model samplerate if needed
                 audio = resampy.resample(audio, rate, self.sample_rate, axis=0)
 
             # convert to torch tensor
             audio = torch.tensor(audio.T, dtype=torch.float)
-            # apply source-wise augmentations
-            audio = self.source_augmentations(audio)
+            # apply source-wise 
+            if self.split == 'train':
+                audio = self.source_augmentations(audio)
             audio_sources[source] = audio
 
         # apply linear mix over source index=0

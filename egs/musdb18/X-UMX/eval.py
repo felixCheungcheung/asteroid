@@ -190,6 +190,9 @@ def separate(
     masked_tf_rep, _ = x_umx_target(audio_torch)
     # shape: (Sources, frames, batch, channels, fbin)
 
+    # check instrument names:
+    
+
     for j, target in enumerate(instruments):
         Vj = masked_tf_rep[j, Ellipsis].cpu().detach().numpy()
         if softmask:
@@ -301,7 +304,14 @@ def eval_main(parser, args):
     use_cuda = not no_cuda and torch.cuda.is_available()
     device = torch.device("cuda" if use_cuda else "cpu")
     model, instruments = load_model(model_path, device)
-
+    
+    ms21_sources = []
+    for s in instruments:
+        if s == 'drums':
+            s = 'percussion'
+        elif s == 'vocals':
+            s = 'vocal'
+        ms21_sources.append(s)
     # test_dataset = musdb.DB(root=root, subsets="test", is_wav=True)
     # results = museval.EvalStore()
     Path(outdir).mkdir(exist_ok=True, parents=True)
@@ -311,7 +321,10 @@ def eval_main(parser, args):
         # Forward the network on the mixture.
         audio, ground_truths = test_dataset[idx]
         audio = audio.T.numpy()
-        ground_truths = ground_truths.numpy().squeeze()
+        
+        # ground_truths = ground_truths.permute(0,2,1)
+        ground_truths = ground_truths.numpy()
+
         # if 'ms21' in root:
         #     input_file = os.path.join(root, 'test', track, track+'_MIX.wav')
         #     # handling an input audio path
@@ -362,29 +375,38 @@ def eval_main(parser, args):
         #     # resample to model samplerate if needed
         #     audio = resampy.resample(audio, rate, samplerate, axis=0)
 
-        # if audio.shape[1] == 1:
-        #     # if we have mono, let's duplicate it
-        #     # as the input of OpenUnmix is always stereo
-        #     audio = np.repeat(audio, 2, axis=1)
-        if audio.shape[1] == 2:
+        if audio.shape[1] == 1:
             # if we have mono, let's duplicate it
             # as the input of OpenUnmix is always stereo
-            audio = audio.sum(axis=1) / 2
-            audio = np.expand_dims(audio, axis=1)
-
+            audio = np.repeat(audio, 2, axis=1)
+        # if audio.shape[1] == 2:
+        #     # if we have mono, let's duplicate it
+        #     # as the input of OpenUnmix is always stereo
+        #     audio = audio.sum(axis=1) / 2
+        #     audio = np.expand_dims(audio, axis=1)
+        # model._return_time_signals = True
         estimates = separate(
-            audio,
+            audio,  
             model,
-            instruments,
+            ms21_sources,
             niter=args.niter,
             alpha=args.alpha,
             softmask=args.softmask,
             residual_model=args.residual_model,
             device=device,
         )
+        estimates_eval_np = np.zeros((len(args.sources), audio.shape[0]))
+        gt_eval_np = np.zeros((len(args.sources), audio.shape[0]))
+        for i, sc_name in enumerate(args.sources):
+            
+            # gt_np = np.zeros_like(, audio[0])
+            
+            gt_eval_np[i,:ground_truths[i].shape[0]] = ground_truths[i].sum(axis = 1)
+            estimates_eval_np[i,:estimates[sc_name].shape[0]] = estimates[sc_name].sum(axis = 1) # summing to mono for evaluation
 
+        # get_metrics only accept mono for each source
 
-        utt_metrics = get_metrics(audio.T, ground_truths, np.stack(estimates), sample_rate=44100, metrics_list=COMPUTE_METRICS, average=False)
+        utt_metrics = get_metrics(audio.sum(axis=1), gt_eval_np, estimates_eval_np , sample_rate=44100, metrics_list=COMPUTE_METRICS, average=False)
 
         series_list.append(pd.Series(utt_metrics))
 
@@ -400,14 +422,14 @@ def eval_main(parser, args):
             # Loop over the sources and estimates
             for src_idx, src in enumerate(ground_truths):
                 sf.write(
-                    local_save_dir + "s{}.wav".format(src_idx),
-                    src,
+                    local_save_dir + "{}.wav".format(ms21_sources[src_idx]),
+                    src.T,
                     args.samplerate
                 )
-            for src_idx, est_src in enumerate(estimates):
+            for src_idx, est_src in estimates.items():
                 est_src *= np.max(np.abs(audio)) / np.max(np.abs(est_src))
                 sf.write(
-                    local_save_dir + "s{}_estimate.wav".format(src_idx),
+                    local_save_dir + "{}_estimate.wav".format(src_idx),
                     est_src,
                     args.samplerate
                 )
