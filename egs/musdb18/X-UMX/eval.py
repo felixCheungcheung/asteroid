@@ -420,10 +420,10 @@ def eval_main(parser, args):
                 args.samplerate
             )
             # Loop over the sources and estimates
-            for src_idx, src in enumerate(gt_eval_np):
+            for src_idx, src in enumerate(ground_truths):
                 sf.write(
                     local_save_dir + "{}.wav".format(ms21_sources[src_idx]),
-                    src,
+                    src.T,
                     args.samplerate
                 )
             for src_idx, est_src in estimates.items():
