@@ -4,9 +4,9 @@ import torch
 import numpy as np
 import argparse
 import soundfile as sf
-# import musdb
+import musdb
 # musdb package is stem based, can not read hq
-# import museval
+import museval
 import norbert
 from pathlib import Path
 import scipy.signal
@@ -40,6 +40,21 @@ def istft(X, rate=44100, n_fft=4096, n_hopsize=1024):
     )
     return audio
 
+
+def new_sdr(references, estimates):
+    """
+    Compute the SDR according to the MDX challenge definition.
+    Adapted from AIcrowd/music-demixing-challenge-starter-kit (MIT license)
+    """
+    assert references.dim() == 4
+    assert estimates.dim() == 4
+    delta = 1e-7  # avoid numerical errors
+    num = torch.sum(torch.square(references), dim=(2, 3))
+    den = torch.sum(torch.square(references - estimates), dim=(2, 3))
+    num += delta
+    den += delta
+    scores = 10 * torch.log10(num / den)
+    return scores
 
 # def separate(
 #     audio,
@@ -276,6 +291,7 @@ def eval_main(parser, args):
         targets=args.sources,
         sample_rate=args.samplerate,
         segment=args.duration,
+        samples_per_track=args.samples_per_track,
         root=args.train_dir,
     )
     
