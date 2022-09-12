@@ -373,50 +373,11 @@ def eval_main(parser, args):
     for idx in tqdm(range(len(test_dataset))):
         # Forward the network on the mixture.
         audio, ground_truths, track_name = test_dataset[idx]
+        print(track_name)
         audio = audio.T.numpy()
         
         ground_truths = ground_truths.permute(0,2,1)
         ground_truths = ground_truths.numpy()
-
-        # if 'ms21' in root:
-        #     input_file = os.path.join(root, 'test', track, track+'_MIX.wav')
-        #     # handling an input audio path
-        #     info = sf.info(input_file)
-        #     start = int(start * info.samplerate)
-        #     # check if dur is none
-        #     if duration > 0:
-        #         # stop in soundfile is calc in samples, not seconds
-        #         stop = start + int(duration * info.samplerate)
-        #     else:
-        #         # set to None for reading complete file
-        #         stop = None
-
-        #     audio, rate = sf.read(input_file, always_2d=True, start=start, stop=stop)
-        #     source_names = ['bass', 'percussion', 'vocal', 'other']
-        #     ground_truths = []
-        #     for source_name in source_names:
-        #         sc, sr = sf.read(os.path.join(root, 'test', track, track+'_STEMS', 'MUSDB',track+'_STEM_MUSDB_'+source_name+'.wav'), always_2d=False, start=start, stop=stop)
-        #         ground_truths.append(sc)
-            
-        # else:
-        #     input_file = os.path.join(root, "test", track, "mixture.wav")
-        #     # handling an input audio path
-        #     info = sf.info(input_file)
-        #     start = int(start * info.samplerate)
-        #     # check if dur is none
-        #     if duration > 0:
-        #         # stop in soundfile is calc in samples, not seconds
-        #         stop = start + int(duration * info.samplerate)
-        #     else:
-        #         # set to None for reading complete file
-        #         stop = None
-
-        #     audio, rate = sf.read(input_file, always_2d=True, start=start, stop=stop)
-        #     source_names = ['bass', 'drums', 'vocals', 'other']
-        #     ground_truths = []
-        #     for source_name in source_names:
-        #         sc, sr = sf.read(os.path.join(root, 'test', track, track+'_STEMS', 'MUSDB',track+'_STEM_MUSDB_'+source_name+'.wav'), always_2d=False, start=start, stop=stop)
-        #         ground_truths.append(sc)
 
 
 
@@ -432,11 +393,7 @@ def eval_main(parser, args):
             # if we have mono, let's duplicate it
             # as the input of OpenUnmix is always stereo
             audio = np.repeat(audio, 2, axis=1)
-        # if audio.shape[1] == 2:
-        #     # if we have mono, let's duplicate it
-        #     # as the input of OpenUnmix is always stereo
-        #     audio = audio.sum(axis=1) / 2
-        #     audio = np.expand_dims(audio, axis=1)
+
         # model._return_time_signals = True
         estimates = separate(
             audio,  
@@ -459,7 +416,7 @@ def eval_main(parser, args):
 
         del estimates
         # get_metrics only accept mono for each source
-        scores, n_sdr = eval_track(ground_truths, estimates_eval_np, win=2*44100, hop=1*44100, compute_sdr=True)
+        scores, n_sdr = eval_track(ground_truths, estimates_eval_np, win=30*44100, hop=15*44100, compute_sdr=True)
         # Global SDR
         print(n_sdr)
         # Frame wise median SDR
