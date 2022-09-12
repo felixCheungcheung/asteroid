@@ -342,7 +342,7 @@ class MS_21Dataset(torch.utils.data.Dataset):
             audio_sources = torch.stack(
                 [wav for src, wav in audio_sources.items() if src in self.targets], dim=0
             )
-        return audio_mix, audio_sources
+        return audio_mix, audio_sources, track_path.name
 
     def __len__(self):
         return len(self.tracks) * self.samples_per_track

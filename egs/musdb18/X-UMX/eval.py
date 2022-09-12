@@ -46,15 +46,52 @@ def new_sdr(references, estimates):
     Compute the SDR according to the MDX challenge definition.
     Adapted from AIcrowd/music-demixing-challenge-starter-kit (MIT license)
     """
-    assert references.dim() == 4
-    assert estimates.dim() == 4
+    # assert references.dim() == 4
+    # assert estimates.dim() == 4
     delta = 1e-7  # avoid numerical errors
-    num = torch.sum(torch.square(references), dim=(2, 3))
-    den = torch.sum(torch.square(references - estimates), dim=(2, 3))
+    num = np.sum(np.square(references), axis=(1, 2))
+    den = np.sum(np.square(references - estimates), axis=(1, 2))
     num += delta
     den += delta
-    scores = 10 * torch.log10(num / den)
+    scores = 10 * np.log10(num / den)
     return scores
+
+    
+def eval_track(references, estimates, win, hop, compute_sdr=True):
+    # references = references.transpose(1, 2).double()
+    # estimates = estimates.transpose(1, 2).double()
+
+    new_scores = new_sdr(references, estimates)
+    # new_scores = None
+
+    if not compute_sdr:
+        return None, new_scores
+    else:
+        # references = references.numpy()
+        # estimates = estimates.numpy()
+        scores = museval.metrics.bss_eval(
+            references, estimates,
+            compute_permutation=False,
+            window=win,
+            hop=hop,
+            framewise_filters=False,
+            bsseval_sources_version=False)[:-1]
+        return scores, new_scores
+
+def estimate_and_evaluate(track):
+    # assume mix as estimates
+    estimates = {
+        'vocals': track.audio,
+        'accompaniment': track.audio
+    }
+
+    # Evaluate using museval
+    scores = museval.eval_mus_track(
+        track, estimates, output_dir="path/to/json"
+    )
+
+    # print nicely formatted and aggregated scores
+    print(scores)
 
 # def separate(
 #     audio,
@@ -291,7 +328,6 @@ def eval_main(parser, args):
         targets=args.sources,
         sample_rate=args.samplerate,
         segment=args.duration,
-        samples_per_track=args.samples_per_track,
         root=args.train_dir,
     )
     
@@ -333,12 +369,13 @@ def eval_main(parser, args):
     Path(outdir).mkdir(exist_ok=True, parents=True)
     txtout = os.path.join(outdir, "results.txt")
     fp = open(txtout, "w")
+    tracks = {}
     for idx in tqdm(range(len(test_dataset))):
         # Forward the network on the mixture.
-        audio, ground_truths = test_dataset[idx]
+        audio, ground_truths, track_name = test_dataset[idx]
         audio = audio.T.numpy()
         
-        # ground_truths = ground_truths.permute(0,2,1)
+        ground_truths = ground_truths.permute(0,2,1)
         ground_truths = ground_truths.numpy()
 
         # if 'ms21' in root:
@@ -411,24 +448,43 @@ def eval_main(parser, args):
             residual_model=args.residual_model,
             device=device,
         )
-        estimates_eval_np = np.zeros((len(args.sources), audio.shape[0]))
+        estimates_eval_np = np.zeros((len(args.sources), audio.shape[0], audio.shape[1]))
 
         # gt_eval_np = np.zeros((len(args.sources), audio.shape[0]))
         gt_eval_np = ground_truths.sum(axis = 1)
         
         for i, sc_name in enumerate(args.sources):
             
-            estimates_eval_np[i,:estimates[sc_name].shape[0]] = estimates[sc_name].sum(axis = 1) # summing to mono for evaluation
+            estimates_eval_np[i,:estimates[sc_name].shape[0]] = estimates[sc_name] # summing to mono for evaluation
 
+        del estimates
         # get_metrics only accept mono for each source
+        scores, n_sdr = eval_track(ground_truths, estimates_eval_np, win=2*44100, hop=1*44100, compute_sdr=True)
+        # Global SDR
+        print(n_sdr)
+        # Frame wise median SDR
+        tracks[track_name] = {}
+        for idx, target in enumerate(model.sources):
+            tracks[track_name][target] = {'nsdr': float(n_sdr[idx])}
+        if scores is not None:
+            (sdr, isr, sir, sar) = scores
+            for idx, target in enumerate(model.sources):
+                    values = {
+                        "SDR": np.nanmedian(sdr[idx].tolist()),
+                        "SIR": np.nanmedian(sir[idx].tolist()),
+                        "ISR": np.nanmedian(isr[idx].tolist()),
+                        "SAR": np.nanmedian(sar[idx].tolist())
+                    }
+                    tracks[track_name][target].update(values)
+        
+        # utt_metrics = get_metrics(audio.sum(axis=1), gt_eval_np, estimates_eval_np.sum(axis = 1), sample_rate=44100, metrics_list=COMPUTE_METRICS, average=False)
 
-        utt_metrics = get_metrics(audio.sum(axis=1), gt_eval_np, estimates_eval_np, sample_rate=44100, metrics_list=COMPUTE_METRICS, average=False)
-
-        series_list.append(pd.Series(utt_metrics))
+        # series_list.append(pd.Series(utt_metrics))
 
         # Save some examples in a folder. Wav files and metrics as text.
+        # track.name should be retrieved
         if idx in save_idx:
-            local_save_dir = os.path.join(outdir, "ex_{}/".format(idx + 1))
+            local_save_dir = os.path.join(outdir, "{}/".format(track_name))
             os.makedirs(local_save_dir, exist_ok=True)
             sf.write(
                 local_save_dir + "mixture.wav",
@@ -439,39 +495,50 @@ def eval_main(parser, args):
             for src_idx, src in enumerate(ground_truths):
                 sf.write(
                     local_save_dir + "{}.wav".format(ms21_sources[src_idx]),
-                    src.T,
+                    src,
                     args.samplerate
                 )
-            for src_idx, est_src in estimates.items():
+            for src_idx, est_src in enumerate(estimates_eval_np):
                 est_src *= np.max(np.abs(audio)) / np.max(np.abs(est_src))
                 sf.write(
-                    local_save_dir + "{}_estimate.wav".format(src_idx),
+                    local_save_dir + "{}_estimate.wav".format(ms21_sources[src_idx]),
                     est_src,
                     args.samplerate
                 )
 
         # Write local metrics to the example folder.
-        with open(local_save_dir + "metrics.json", "w") as f:
-            json.dump({k:v.tolist() for k,v in utt_metrics.items()}, f, indent=0)
+        with open(local_save_dir + "metrics_{}.json".format(track_name), "w") as f:
+            json.dump({k:v for k,v in tracks[track_name].items()}, f, indent=0)
 
 
     # Save all metrics to the experiment folder.
-    all_metrics_df = pd.DataFrame(series_list)
+    all_metrics_df = pd.DataFrame.from_dict(tracks, orient='index')
     all_metrics_df.to_csv(os.path.join(outdir, "all_metrics.csv"))
 
     # Print and save summary metrics
     final_results = {}
-    for metric_name in COMPUTE_METRICS:
-        input_metric_name = "input_" + metric_name
-        ldf = all_metrics_df[metric_name] - all_metrics_df[input_metric_name]
-        final_results[metric_name] = all_metrics_df[metric_name].mean()
-        final_results[metric_name + "_imp"] = ldf.mean()
+    metric_names = next(iter(tracks.values()))[model.sources[0]]
+    for metric_name in metric_names:
+        avg = 0
+        avg_of_medians = 0
+        for source in model.sources:
+            medians = [
+                np.nanmedian(tracks[track][source][metric_name])
+                for track in tracks.keys()]
+            mean = np.mean(medians)
+            median = np.median(medians)
+            final_results[metric_name.lower() + "_" + source] = mean
+            final_results[metric_name.lower() + "_med" + "_" + source] = median
+            avg += mean / len(model.sources)
+            avg_of_medians += median / len(model.sources)
+        final_results[metric_name.lower()] = avg
+        final_results[metric_name.lower() + "_med"] = avg_of_medians
 
     print("Overall metrics :")
     print(final_results)
 
     with open(os.path.join(outdir, "final_metrics.json"), "w") as f:
-        json.dump({k:v.tolist() for k,v in final_results.items()}, f, indent=0)
+        json.dump({k:v for k,v in final_results.items()}, f, indent=0)
 
 
 if __name__ == "__main__":
