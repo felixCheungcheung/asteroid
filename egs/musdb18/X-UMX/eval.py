@@ -332,9 +332,10 @@ def eval_main(parser, args):
     )
     
     # Randomly choose the indexes of sentences to save.
-    save_idx = random.sample(range(len(test_dataset)),5)
+    # save_idx = random.sample(range(len(test_dataset)),5)
+    save_idx = []
 
-    series_list = []
+    # series_list = []
 
     if args.pretrained_type == 'ms21':
         model_path = os.path.join(args.outdir, 'best_model.pth')
