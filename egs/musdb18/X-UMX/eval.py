@@ -27,7 +27,17 @@ import MS_21Dataloader
 os.environ['KMP_DUPLICATE_LIB_OK']='True'
 COMPUTE_METRICS = ["si_sdr", "sdr", "sir", "sar"]
 
-
+def batch_to_device(batch, device):
+    new_batch = []
+    for b in batch:
+        new_dict = {}
+        for k, v in b.items():
+            if isinstance(v, torch.Tensor):
+                new_dict[k] = v.to(device=device)
+            else:
+                new_dict[k] = v
+        new_batch.append(new_dict)
+    return new_batch
 
 def load_model(model_name, device="cpu"):
     print("Loading model from: {}".format(model_name), file=sys.stderr)
@@ -307,7 +317,7 @@ def inference_args(parser, remaining_args):
     )
     
     inf_parser.add_argument(
-        "--num_workers", type=int, default=6, help="number of workers."
+        "--num_workers", type=int, default=1, help="number of workers."
     )
 
     inf_parser.add_argument(
@@ -335,6 +345,7 @@ def eval_main(parser, args):
     )
     
     # Randomly choose the indexes of sentences to save.
+    eval_loader = torch.utils.data.DataLoader(test_dataset, batch_size=1)
     save_idx = random.sample(range(len(test_dataset)),5)
     # save_idx = []
 
@@ -375,13 +386,17 @@ def eval_main(parser, args):
     # txtout = os.path.join(outdir, "results.txt")
     # fp = open(txtout, "w")
     tracks = {}
-    for idx in tqdm(range(25,50,1)):
+    for idx, batch in tqdm(enumerate(eval_loader)):
         # Forward the network on the mixture.
-        audio, ground_truths, track_name = test_dataset[idx]
-        print(track_name)
-        audio = audio.T.numpy()
+
+        audio, ground_truths, track_name = batch
+        # audio, ground_truths, track_name = test_dataset[idx]
         
-        ground_truths = ground_truths.permute(0,2,1)
+        track_name = track_name[0]
+        print(track_name)
+        audio = audio.T.numpy().squeeze()
+        
+        ground_truths = ground_truths.squeeze().permute(0,2,1)
         ground_truths = ground_truths.numpy()
 
 
