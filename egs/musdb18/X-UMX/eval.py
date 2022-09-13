@@ -340,6 +340,35 @@ def inference_args(parser, remaining_args):
     )
     return inf_parser.parse_args()
 
+def write_final_res(output_dir):
+    pass
+    # for tracks in os.listdir(output_dir):
+
+
+    # Print and save summary metrics
+    # final_results = {}
+    # metric_names = next(iter(tracks.values()))[model.sources[0]]
+    # for metric_name in metric_names:
+    #     avg = 0
+    #     avg_of_medians = 0
+    #     for source in model.sources:
+    #         medians = [
+    #             tracks[track][source][metric_name]
+    #             for track in tracks.keys()]
+    #         mean = np.mean(medians)
+    #         median = np.median(medians)
+    #         final_results[metric_name.lower() + "_" + source] = mean
+    #         final_results[metric_name.lower() + "_med" + "_" + source] = median
+    #         avg += mean / len(model.sources)
+    #         avg_of_medians += median / len(model.sources)
+    #     final_results[metric_name.lower()] = avg
+    #     final_results[metric_name.lower() + "_med"] = avg_of_medians
+
+    # print("Overall metrics :")
+    # print(final_results)
+
+    with open(os.path.join(outdir, "final_metrics.json"), "w") as f:
+        json.dump({k:v for k,v in final_results.items()}, f, indent=0)
 
 def eval_main(parser, args):
     
@@ -350,6 +379,7 @@ def eval_main(parser, args):
         sources=args.sources,
         targets=args.sources,
         sample_rate=args.samplerate,
+        samples_per_track=1,
         segment=args.duration,
         root=args.train_dir,
     )
@@ -396,7 +426,7 @@ def eval_main(parser, args):
     Path(outdir).mkdir(exist_ok=True, parents=True)
     # txtout = os.path.join(outdir, "results.txt")
     # fp = open(txtout, "w")
-    tracks = {}
+    # tracks = {}
     for idx, batch in tqdm(enumerate(eval_loader)):
         # Forward the network on the mixture.
         
@@ -444,9 +474,9 @@ def eval_main(parser, args):
         # Global SDR
         print(n_sdr)
         # Frame wise median SDR
-        tracks[track_name] = {}
+        tracks = {}
         for idx, target in enumerate(model.sources):
-            tracks[track_name][target] = {'nsdr': float(n_sdr[idx])}
+            tracks[target] = {'nsdr': float(n_sdr[idx])}
         if scores is not None:
             (sdr, isr, sir, sar) = scores
             for idx, target in enumerate(model.sources):
@@ -456,7 +486,7 @@ def eval_main(parser, args):
                         "ISR": np.nanmedian(isr[idx].tolist()),
                         "SAR": np.nanmedian(sar[idx].tolist())
                     }
-                    tracks[track_name][target].update(values)
+                    tracks[target].update(values)
         
         # utt_metrics = get_metrics(audio.sum(axis=1), gt_eval_np, estimates_eval_np.sum(axis = 1), sample_rate=44100, metrics_list=COMPUTE_METRICS, average=False)
 
@@ -491,38 +521,10 @@ def eval_main(parser, args):
 
         # Write local metrics to the example folder.
         with open(local_save_dir + "metrics_{}.json".format(track_name), "w") as f:
-            json.dump({k:v for k,v in tracks[track_name].items()}, f, indent=0)
+            json.dump({k:v for k,v in tracks.items()}, f, indent=0)
 
 
-    # Save all metrics to the experiment folder.
-    all_metrics_df = pd.DataFrame.from_dict(tracks, orient='index')
-    all_metrics_df.to_csv(os.path.join(outdir, "all_metrics.csv"))
-
-    # Print and save summary metrics
-    final_results = {}
-    metric_names = next(iter(tracks.values()))[model.sources[0]]
-    for metric_name in metric_names:
-        avg = 0
-        avg_of_medians = 0
-        for source in model.sources:
-            medians = [
-                np.nanmedian(tracks[track][source][metric_name])
-                for track in tracks.keys()]
-            mean = np.mean(medians)
-            median = np.median(medians)
-            final_results[metric_name.lower() + "_" + source] = mean
-            final_results[metric_name.lower() + "_med" + "_" + source] = median
-            avg += mean / len(model.sources)
-            avg_of_medians += median / len(model.sources)
-        final_results[metric_name.lower()] = avg
-        final_results[metric_name.lower() + "_med"] = avg_of_medians
-
-    print("Overall metrics :")
-    print(final_results)
-
-    with open(os.path.join(outdir, "final_metrics.json"), "w") as f:
-        json.dump({k:v for k,v in final_results.items()}, f, indent=0)
-
+    write_final_res(outdir)
 
 if __name__ == "__main__":
     # Training settings
