@@ -14,7 +14,7 @@ import numpy as np
 import resampy
 # import musedb
 from memory_profiler import profile
-@ profile
+
 class MS_21Dataset(torch.utils.data.Dataset):
     """MS_21 music separation dataset
 
@@ -268,7 +268,7 @@ class MS_21Dataset(torch.utils.data.Dataset):
 #         )
 #         # audio_mix a mixture over the sources, audio_sources is a concatenation of all sources
 #         return audio_mix, audio_sources
-    
+    @ profile
     def __getitem__(self, index):
         # assemble the mixture of target and interferers
         audio_sources = {}
@@ -340,10 +340,10 @@ class MS_21Dataset(torch.utils.data.Dataset):
         # apply linear mix over source index=0
         audio_mix = torch.stack(list(audio_sources.values())).sum(0)
         if self.targets:
-            audio_sources = torch.stack(
+            audio_source_matrix = torch.stack(
                 [wav for src, wav in audio_sources.items() if src in self.targets], dim=0
             )
-        return audio_mix, audio_sources, track_path.name
+        return audio_mix, audio_source_matrix, track_path.name
 
     def __len__(self):
         return len(self.tracks) * self.samples_per_track
