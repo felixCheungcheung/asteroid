@@ -442,6 +442,8 @@ def eval_main(parser, args):
 
         # Save some examples in a folder. Wav files and metrics as text.
         # track.name should be retrieved
+        local_save_dir = os.path.join(outdir, "{}/".format(track_name))
+        os.makedirs(local_save_dir, exist_ok=True)
         if idx in save_idx:
             local_save_dir = os.path.join(outdir, "{}/".format(track_name))
             os.makedirs(local_save_dir, exist_ok=True)
