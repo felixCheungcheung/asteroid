@@ -332,7 +332,7 @@ def eval_main(parser, args):
     )
     
     # Randomly choose the indexes of sentences to save.
-    save_idx = random.sample(range(5)),len(test_dataset))
+    save_idx = random.sample(range(5),len(test_dataset))
 
     series_list = []
 
