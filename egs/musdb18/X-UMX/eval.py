@@ -407,18 +407,18 @@ def eval_main(parser, args):
             residual_model=args.residual_model,
             device=device,
         )
-        estimates_eval_np = np.zeros((len(args.sources), audio.shape[0], audio.shape[1]))
+        # estimates_eval_np = np.zeros((len(args.sources), audio.shape[0], audio.shape[1]))
 
         # gt_eval_np = np.zeros((len(args.sources), audio.shape[0]))
         # gt_eval_np = ground_truths.sum(axis = 1)
         
-        for i, sc_name in enumerate(args.sources):
+        # for i, sc_name in enumerate(args.sources):
             
-            estimates_eval_np[i,:estimates[sc_name].shape[0]] = estimates[sc_name] # summing to mono for evaluation
+        #     estimates_eval_np[i,:estimates[sc_name].shape[0]] = estimates[sc_name] # summing to mono for evaluation
 
-        del estimates
+        # del estimates
         # get_metrics only accept mono for each source
-        scores, n_sdr = eval_track(ground_truths, estimates_eval_np, win=30*44100, hop=15*44100, compute_sdr=False)
+        scores, n_sdr = eval_track(ground_truths, estimates, win=30*44100, hop=15*44100, compute_sdr=True)
         # Global SDR
         print(n_sdr)
         # Frame wise median SDR
