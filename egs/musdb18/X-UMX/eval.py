@@ -440,7 +440,7 @@ def eval_main(parser, args):
         
         # del estimates
         # get_metrics only accept mono for each source
-        scores, n_sdr = eval_track(ground_truths, estimates, win=20*44100, hop=10*44100, compute_sdr=True)
+        scores, n_sdr = eval_track(ground_truths, estimates, win=30*44100, hop=15*44100, compute_sdr=True)
         # Global SDR
         print(n_sdr)
         # Frame wise median SDR
