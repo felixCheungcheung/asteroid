@@ -4,28 +4,31 @@ import torch
 import numpy as np
 import argparse
 import soundfile as sf
-import musdb
+# import musdb
 # musdb package is stem based, can not read hq
 import museval
 import norbert
 from pathlib import Path
 import scipy.signal
-import resampy
+# import resampy
 from asteroid.models import XUMX
 from asteroid.complex_nn import torch_complex_from_magphase
-from asteroid.metrics import get_metrics
+# from asteroid.metrics import get_metrics
 import os
 import warnings
 import sys
 import pandas as pd
-import torchaudio
+# import torchaudio
 from tqdm import tqdm
 import MS_21Dataloader
+from memory_profiler import profile
+
 
 os.environ['KMP_DUPLICATE_LIB_OK']='True'
 COMPUTE_METRICS = ["si_sdr", "sdr", "sir", "sar"]
 
 
+@ profile
 def load_model(model_name, device="cpu"):
     print("Loading model from: {}".format(model_name), file=sys.stderr)
     model = XUMX.from_pretrained(model_name)
@@ -407,18 +410,18 @@ def eval_main(parser, args):
             residual_model=args.residual_model,
             device=device,
         )
-        # estimates_eval_np = np.zeros((len(args.sources), audio.shape[0], audio.shape[1]))
+        estimates_eval_np = np.zeros((len(args.sources), audio.shape[0], audio.shape[1]))
 
         # gt_eval_np = np.zeros((len(args.sources), audio.shape[0]))
         # gt_eval_np = ground_truths.sum(axis = 1)
         
-        # for i, sc_name in enumerate(args.sources):
+        for i, sc_name in enumerate(args.sources):
             
-        #     estimates_eval_np[i,:estimates[sc_name].shape[0]] = estimates[sc_name] # summing to mono for evaluation
+            estimates_eval_np[i,:estimates[sc_name].shape[0]] = estimates[sc_name] # summing to mono for evaluation
 
-        # del estimates
+        del estimates
         # get_metrics only accept mono for each source
-        scores, n_sdr = eval_track(ground_truths, estimates, win=30*44100, hop=15*44100, compute_sdr=True)
+        scores, n_sdr = eval_track(ground_truths, estimates_eval_np, win=30*44100, hop=15*44100, compute_sdr=True)
         # Global SDR
         print(n_sdr)
         # Frame wise median SDR
