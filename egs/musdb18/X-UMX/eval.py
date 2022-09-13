@@ -357,7 +357,7 @@ def eval_main(parser, args):
     
     eval_loader = torch.utils.data.DataLoader(test_dataset, batch_size=1)
     # Randomly choose the indexes of sentences to save.
-    save_idx = random.sample(range(len(test_dataset)),5)
+    save_idx = random.sample(range(len(test_dataset)),len(test_dataset))
     # save_idx = []
 
     # series_list = []
