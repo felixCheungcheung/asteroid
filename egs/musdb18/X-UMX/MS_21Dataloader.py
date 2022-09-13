@@ -13,7 +13,7 @@ import os
 import numpy as np
 import resampy
 # import musedb
-from memory_profiler import profile
+
 
 class MS_21Dataset(torch.utils.data.Dataset):
     """MS_21 music separation dataset
@@ -268,7 +268,7 @@ class MS_21Dataset(torch.utils.data.Dataset):
 #         )
 #         # audio_mix a mixture over the sources, audio_sources is a concatenation of all sources
 #         return audio_mix, audio_sources
-    @ profile
+    
     def __getitem__(self, index):
         # assemble the mixture of target and interferers
         audio_sources = {}

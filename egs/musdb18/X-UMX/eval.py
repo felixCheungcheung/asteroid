@@ -21,7 +21,7 @@ import pandas as pd
 # import torchaudio
 from tqdm import tqdm
 import MS_21Dataloader
-
+from memory_profiler import profile
 
 
 os.environ['KMP_DUPLICATE_LIB_OK']='True'
@@ -204,7 +204,7 @@ def estimate_and_evaluate(track):
 
 #     return estimates
 
-
+@ profile
 def separate(
     audio,
     x_umx_target,
@@ -333,6 +333,7 @@ def inference_args(parser, remaining_args):
 
 
 def eval_main(parser, args):
+    
     no_cuda=args.no_cuda
     test_dataset = MS_21Dataloader.MS_21Dataset(
         split='test',
@@ -344,8 +345,9 @@ def eval_main(parser, args):
         root=args.train_dir,
     )
     
-    # Randomly choose the indexes of sentences to save.
+    
     eval_loader = torch.utils.data.DataLoader(test_dataset, batch_size=1)
+    # Randomly choose the indexes of sentences to save.
     save_idx = random.sample(range(len(test_dataset)),5)
     # save_idx = []
 
@@ -388,7 +390,7 @@ def eval_main(parser, args):
     tracks = {}
     for idx, batch in tqdm(enumerate(eval_loader)):
         # Forward the network on the mixture.
-
+        
         audio, ground_truths, track_name = batch
         # audio, ground_truths, track_name = test_dataset[idx]
         
@@ -415,6 +417,7 @@ def eval_main(parser, args):
             audio = np.repeat(audio, 2, axis=1)
 
         # model._return_time_signals = True
+        
         estimates = separate(
             audio,  
             model,
@@ -558,5 +561,5 @@ if __name__ == "__main__":
     args, _ = parser.parse_known_args()
     args = inference_args(parser, args)
 
-
+    
     eval_main(parser, args)
