@@ -13,7 +13,8 @@ import os
 import numpy as np
 import resampy
 # import musedb
-
+from memory_profiler import profile
+@ profile
 class MS_21Dataset(torch.utils.data.Dataset):
     """MS_21 music separation dataset
 

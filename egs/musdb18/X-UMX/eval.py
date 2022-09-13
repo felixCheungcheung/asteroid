@@ -21,14 +21,14 @@ import pandas as pd
 # import torchaudio
 from tqdm import tqdm
 import MS_21Dataloader
-from memory_profiler import profile
+
 
 
 os.environ['KMP_DUPLICATE_LIB_OK']='True'
 COMPUTE_METRICS = ["si_sdr", "sdr", "sir", "sar"]
 
 
-@ profile
+
 def load_model(model_name, device="cpu"):
     print("Loading model from: {}".format(model_name), file=sys.stderr)
     model = XUMX.from_pretrained(model_name)
@@ -375,7 +375,7 @@ def eval_main(parser, args):
     # txtout = os.path.join(outdir, "results.txt")
     # fp = open(txtout, "w")
     tracks = {}
-    for idx in tqdm(range(len(test_dataset))):
+    for idx in tqdm(range(25,50,1)):
         # Forward the network on the mixture.
         audio, ground_truths, track_name = test_dataset[idx]
         print(track_name)
