@@ -74,7 +74,13 @@ def eval_track(references, estimates, win, hop, compute_sdr=True):
     # references = references.transpose(1, 2).double()
     # estimates = estimates.transpose(1, 2).double()
 
-    new_scores = new_sdr(references, estimates)
+    estimates_eval_np = np.zeros_like(references)
+
+    for i, sc_name in enumerate(args.sources):
+        
+        estimates_eval_np[i,:estimates[sc_name].shape[0]] = estimates[sc_name] # summing to mono for evaluation
+
+    new_scores = new_sdr(references, estimates_eval_np)
     # new_scores = None
 
     if not compute_sdr:
@@ -83,7 +89,7 @@ def eval_track(references, estimates, win, hop, compute_sdr=True):
         # references = references.numpy()
         # estimates = estimates.numpy()
         scores = museval.metrics.bss_eval(
-            references, estimates,
+            references, estimates_eval_np,
             compute_permutation=False,
             window=win,
             hop=hop,
@@ -267,6 +273,8 @@ def separate(
         V.append(Vj[:, 0, Ellipsis])  # remove sample dim
         source_names += [target]
 
+    del masked_tf_rep
+
     V = np.transpose(np.array(V), (1, 3, 2, 0))
 
     # convert to complex numpy type
@@ -280,7 +288,8 @@ def separate(
         source_names += ["residual"] if len(instruments) > 1 else ["accompaniment"]
 
     Y = norbert.wiener(V, X.astype(np.complex128), niter, use_softmask=softmask)
-
+    del V
+    del X
     estimates = {}
     for j, name in enumerate(source_names):
         audio_hat = istft(
@@ -428,18 +437,10 @@ def eval_main(parser, args):
             residual_model=args.residual_model,
             device=device,
         )
-        estimates_eval_np = np.zeros((len(args.sources), audio.shape[0], audio.shape[1]))
-
-        # gt_eval_np = np.zeros((len(args.sources), audio.shape[0]))
-        # gt_eval_np = ground_truths.sum(axis = 1)
         
-        for i, sc_name in enumerate(args.sources):
-            
-            estimates_eval_np[i,:estimates[sc_name].shape[0]] = estimates[sc_name] # summing to mono for evaluation
-
-        del estimates
+        # del estimates
         # get_metrics only accept mono for each source
-        scores, n_sdr = eval_track(ground_truths, estimates_eval_np, win=30*44100, hop=15*44100, compute_sdr=True)
+        scores, n_sdr = eval_track(ground_truths, estimates, win=20*44100, hop=10*44100, compute_sdr=True)
         # Global SDR
         print(n_sdr)
         # Frame wise median SDR
@@ -480,10 +481,10 @@ def eval_main(parser, args):
                     src,
                     args.samplerate
                 )
-            for src_idx, est_src in enumerate(estimates_eval_np):
+            for src_idx, est_src in estimates.items():
                 est_src *= np.max(np.abs(audio)) / np.max(np.abs(est_src))
                 sf.write(
-                    local_save_dir + "{}_estimate.wav".format(ms21_sources[src_idx]),
+                    local_save_dir + "{}_estimate.wav".format(src_idx),
                     est_src,
                     args.samplerate
                 )
