@@ -332,8 +332,8 @@ def eval_main(parser, args):
     )
     
     # Randomly choose the indexes of sentences to save.
-    # save_idx = random.sample(range(len(test_dataset)),5)
-    save_idx = None
+    save_idx = random.sample(range(len(test_dataset)),5)
+    # save_idx = []
 
     # series_list = []
 
@@ -343,7 +343,7 @@ def eval_main(parser, args):
         model_path = os.path.join(args.outdir, "pretrained_xumx_musdb18HQ.pth")
     
     model_path = os.path.abspath(model_path)
-
+    print(model_path)
     if not (os.path.exists(model_path)):
         outdir = os.path.abspath("./results_using_pretrained_xumx_musdb18HQ")
         model_path = "r-sawata/XUMX_ms21_music_separation"
