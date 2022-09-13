@@ -368,8 +368,8 @@ def eval_main(parser, args):
     # test_dataset = musdb.DB(root=root, subsets="test", is_wav=True)
     # results = museval.EvalStore()
     Path(outdir).mkdir(exist_ok=True, parents=True)
-    txtout = os.path.join(outdir, "results.txt")
-    fp = open(txtout, "w")
+    # txtout = os.path.join(outdir, "results.txt")
+    # fp = open(txtout, "w")
     tracks = {}
     for idx in tqdm(range(len(test_dataset))):
         # Forward the network on the mixture.
@@ -409,7 +409,7 @@ def eval_main(parser, args):
         estimates_eval_np = np.zeros((len(args.sources), audio.shape[0], audio.shape[1]))
 
         # gt_eval_np = np.zeros((len(args.sources), audio.shape[0]))
-        gt_eval_np = ground_truths.sum(axis = 1)
+        # gt_eval_np = ground_truths.sum(axis = 1)
         
         for i, sc_name in enumerate(args.sources):
             
