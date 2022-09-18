@@ -340,35 +340,7 @@ def inference_args(parser, remaining_args):
     )
     return inf_parser.parse_args()
 
-def write_final_res(output_dir):
-    pass
-    # for tracks in os.listdir(output_dir):
 
-
-    # Print and save summary metrics
-    # final_results = {}
-    # metric_names = next(iter(tracks.values()))[model.sources[0]]
-    # for metric_name in metric_names:
-    #     avg = 0
-    #     avg_of_medians = 0
-    #     for source in model.sources:
-    #         medians = [
-    #             tracks[track][source][metric_name]
-    #             for track in tracks.keys()]
-    #         mean = np.mean(medians)
-    #         median = np.median(medians)
-    #         final_results[metric_name.lower() + "_" + source] = mean
-    #         final_results[metric_name.lower() + "_med" + "_" + source] = median
-    #         avg += mean / len(model.sources)
-    #         avg_of_medians += median / len(model.sources)
-    #     final_results[metric_name.lower()] = avg
-    #     final_results[metric_name.lower() + "_med"] = avg_of_medians
-
-    # print("Overall metrics :")
-    # print(final_results)
-
-    with open(os.path.join(outdir, "final_metrics.json"), "w") as f:
-        json.dump({k:v for k,v in final_results.items()}, f, indent=0)
 
 def eval_main(parser, args):
     
@@ -431,6 +403,13 @@ def eval_main(parser, args):
         # Forward the network on the mixture.
         
         audio, ground_truths, track_name = batch
+
+        local_save_dir = os.path.join(outdir, "{}/".format(track_name))
+        
+        if os.path.exists(os.path.join(local_save_dir, "metrics_{}.json".format(track_name))):
+
+            continue
+
         # audio, ground_truths, track_name = test_dataset[idx]
         
         track_name = track_name[0]
@@ -494,7 +473,6 @@ def eval_main(parser, args):
 
         # Save some examples in a folder. Wav files and metrics as text.
         # track.name should be retrieved
-        local_save_dir = os.path.join(outdir, "{}/".format(track_name))
         os.makedirs(local_save_dir, exist_ok=True)
         if idx in save_idx:
             local_save_dir = os.path.join(outdir, "{}/".format(track_name))
@@ -526,6 +504,42 @@ def eval_main(parser, args):
 
     write_final_res(outdir)
 
+def write_final_res(output_dir):
+    tracks = {}
+    for track in os.listdir(output_dir):
+        if not os.path.isdir(os.path.join(output_dir,track)):
+            continue
+        tracks[track] = {}
+        with open(os.path.join(output_dir,track, "metrics_{}.json".format(track)), "r") as f:
+            tracks[track]  = json.load(f)
+
+    # Print and save summary metrics
+    final_results = {}
+    sources = ['bass', 'drums', 'vocals', 'other']
+    metric_names = ["nsdr", "SDR", "SIR", "ISR", "SAR"]
+    # metric_names = next(iter(tracks[track].values()))[sources[0]]
+    for metric_name in metric_names:
+        avg = 0
+        avg_of_medians = 0
+        for source in sources:
+            medians = [
+                tracks[track][source][metric_name]
+                for track in tracks.keys()]
+            mean = np.mean(medians)
+            median = np.median(medians)
+            final_results[metric_name.lower() + "_" + source] = mean
+            final_results[metric_name.lower() + "_med" + "_" + source] = median
+            avg += mean / len(sources)
+            avg_of_medians += median / len(sources)
+        final_results[metric_name.lower()] = avg
+        final_results[metric_name.lower() + "_med"] = avg_of_medians
+
+    print("Overall metrics :")
+    print(final_results)
+
+    with open(os.path.join(output_dir, "final_metrics.json"), "w") as f:
+        json.dump({k:v for k,v in final_results.items()}, f, indent=0)
+        
 if __name__ == "__main__":
     # Training settings
     parser = argparse.ArgumentParser(description="OSU Inference", add_help=False)
