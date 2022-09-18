@@ -405,7 +405,7 @@ def eval_main(parser, args):
         audio, ground_truths, track_name = batch
         track_name = track_name[0]
         print(track_name)
-        
+
         local_save_dir = os.path.join(outdir, "{}/".format(track_name))
         metric_dir = os.path.join(local_save_dir, "metrics_{}.json".format(track_name))
         if os.path.exists(metric_dir):
@@ -478,6 +478,10 @@ def eval_main(parser, args):
         # Save some examples in a folder. Wav files and metrics as text.
         # track.name should be retrieved
         os.makedirs(local_save_dir, exist_ok=True)
+        # Write local metrics to the example folder.
+        with open(local_save_dir + "metrics_{}.json".format(track_name), "w") as f:
+            json.dump({k:v for k,v in tracks.items()}, f, indent=0)
+            
         if idx in save_idx:
             local_save_dir = os.path.join(outdir, "{}/".format(track_name))
             os.makedirs(local_save_dir, exist_ok=True)
@@ -501,9 +505,7 @@ def eval_main(parser, args):
                     args.samplerate
                 )
 
-        # Write local metrics to the example folder.
-        with open(local_save_dir + "metrics_{}.json".format(track_name), "w") as f:
-            json.dump({k:v for k,v in tracks.items()}, f, indent=0)
+        
 
 
     write_final_res(outdir)
