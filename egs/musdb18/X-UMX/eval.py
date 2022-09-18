@@ -405,10 +405,12 @@ def eval_main(parser, args):
         audio, ground_truths, track_name = batch
 
         local_save_dir = os.path.join(outdir, "{}/".format(track_name))
-        
-        if os.path.exists(os.path.join(local_save_dir, "metrics_{}.json".format(track_name))):
-
+        metric_dir = os.path.join(local_save_dir, "metrics_{}.json".format(track_name))
+        if os.path.exists(metric_dir):
+            print("Found metric.json, skipping ", track_name)
             continue
+        else:
+            print("Not found, ", metric_dir)
 
         # audio, ground_truths, track_name = test_dataset[idx]
         
