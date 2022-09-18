@@ -403,7 +403,9 @@ def eval_main(parser, args):
         # Forward the network on the mixture.
         
         audio, ground_truths, track_name = batch
-
+        track_name = track_name[0]
+        print(track_name)
+        
         local_save_dir = os.path.join(outdir, "{}/".format(track_name))
         metric_dir = os.path.join(local_save_dir, "metrics_{}.json".format(track_name))
         if os.path.exists(metric_dir):
@@ -414,8 +416,8 @@ def eval_main(parser, args):
 
         # audio, ground_truths, track_name = test_dataset[idx]
         
-        track_name = track_name[0]
-        print(track_name)
+        
+        
         audio = audio.T.numpy().squeeze()
         
         ground_truths = ground_truths.squeeze().permute(0,2,1)
