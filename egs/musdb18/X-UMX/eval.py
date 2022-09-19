@@ -456,7 +456,7 @@ def eval_main(parser, args):
         #     residual_model=args.residual_model,
         #     device=device,
         # )
-        estimates = read_estimate(local_save_dir, ms21_sources, args.samplerate)
+        estimates = read_estimate(local_save_dir, ms21_sources)
         # del estimates
         # get_metrics only accept mono for each source
         scores, n_sdr = eval_track(ground_truths, estimates, win=30*44100, hop=15*44100, compute_sdr=True)
