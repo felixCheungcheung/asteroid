@@ -377,7 +377,7 @@ def eval_main(parser, args):
     else:
         outdir = os.path.join(
             os.path.abspath(args.outdir),
-            f"EvaluateResults_{args.pretrained_type}_testdata",
+            f"EvaluateResults_musdb18hq_testset",
         )
     Path(outdir).mkdir(exist_ok=True, parents=True)
     print("Evaluated results will be saved in:\n {}".format(outdir), file=sys.stderr)
@@ -443,7 +443,7 @@ def eval_main(parser, args):
         estimates = separate(
             audio,  
             model,
-            ms21_sources,
+            instruments,
             niter=args.niter,
             alpha=args.alpha,
             softmask=args.softmask,
