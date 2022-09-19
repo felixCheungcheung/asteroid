@@ -343,9 +343,9 @@ def inference_args(parser, remaining_args):
 def read_estimate(local_save_dir, sources):
     estimates = {}
     for src in sources:
-        estimates[src], rate = sf.read(os.path.join(local_save_dir,src+'_estimate.wav'), always_2d=True)
-
-    return estimates.permute(0,2,1)
+        audio, rate = sf.read(os.path.join(local_save_dir,src+'_estimate.wav'), always_2d=True)
+        estimates[src] = audio.T
+    return estimates
 
 
 def eval_main(parser, args):
