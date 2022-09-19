@@ -344,7 +344,7 @@ def read_estimate(local_save_dir, sources):
     estimates = {}
     for src in sources:
         audio, rate = sf.read(os.path.join(local_save_dir,src+'_estimate.wav'), always_2d=True)
-        estimates[src] = audio.T
+        estimates[src] = audio
     return estimates
 
 
