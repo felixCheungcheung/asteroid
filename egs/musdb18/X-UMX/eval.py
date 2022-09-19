@@ -340,6 +340,12 @@ def inference_args(parser, remaining_args):
     )
     return inf_parser.parse_args()
 
+def read_estimate(local_save_dir, sources):
+    estimates = {}
+    for src in sources:
+        estimates[src], rate = sf.read(os.path.join(local_save_dir,src+'_estimate.wav'), always_2d=True)
+
+    return estimates.permute(0,2,1)
 
 
 def eval_main(parser, args):
@@ -407,9 +413,9 @@ def eval_main(parser, args):
         print(track_name)
 
         local_save_dir = os.path.join(outdir, "{}/".format(track_name))
-        metric_dir = os.path.join(local_save_dir, "metrics_{}.json".format(track_name))
+        metric_dir = os.path.join(local_save_dir, "ideal_metrics_{}.json".format(track_name))
         if os.path.exists(metric_dir):
-            print("Found metric.json, skipping ", track_name)
+            print("Found ideal_metric.json, skipping ", track_name)
             continue
         else:
             print("Not found, ", metric_dir)
@@ -440,17 +446,17 @@ def eval_main(parser, args):
 
         # model._return_time_signals = True
         
-        estimates = separate(
-            audio,  
-            model,
-            instruments,
-            niter=args.niter,
-            alpha=args.alpha,
-            softmask=args.softmask,
-            residual_model=args.residual_model,
-            device=device,
-        )
-        
+        # estimates = separate(
+        #     audio,  
+        #     model,
+        #     instruments,
+        #     niter=args.niter,
+        #     alpha=args.alpha,
+        #     softmask=args.softmask,
+        #     residual_model=args.residual_model,
+        #     device=device,
+        # )
+        estimates = read_estimate(local_save_dir, ms21_sources, args.samplerate)
         # del estimates
         # get_metrics only accept mono for each source
         scores, n_sdr = eval_track(ground_truths, estimates, win=30*44100, hop=15*44100, compute_sdr=True)
@@ -479,31 +485,31 @@ def eval_main(parser, args):
         # track.name should be retrieved
         os.makedirs(local_save_dir, exist_ok=True)
         # Write local metrics to the example folder.
-        with open(local_save_dir + "metrics_{}.json".format(track_name), "w") as f:
+        with open(metric_dir, "w") as f:
             json.dump({k:v for k,v in tracks.items()}, f, indent=0)
             
-        if idx in save_idx:
-            local_save_dir = os.path.join(outdir, "{}/".format(track_name))
-            os.makedirs(local_save_dir, exist_ok=True)
-            sf.write(
-                local_save_dir + "mixture.wav",
-                audio,
-                args.samplerate
-            )
-            # Loop over the sources and estimates
-            for src_idx, src in enumerate(ground_truths):
-                sf.write(
-                    local_save_dir + "{}.wav".format(ms21_sources[src_idx]),
-                    src,
-                    args.samplerate
-                )
-            for src_idx, est_src in estimates.items():
-                est_src *= np.max(np.abs(audio)) / np.max(np.abs(est_src))
-                sf.write(
-                    local_save_dir + "{}_estimate.wav".format(src_idx),
-                    est_src,
-                    args.samplerate
-                )
+        # if idx in save_idx:
+        #     local_save_dir = os.path.join(outdir, "{}/".format(track_name))
+        #     os.makedirs(local_save_dir, exist_ok=True)
+        #     sf.write(
+        #         local_save_dir + "mixture.wav",
+        #         audio,
+        #         args.samplerate
+        #     )
+        #     # Loop over the sources and estimates
+        #     for src_idx, src in enumerate(ground_truths):
+        #         sf.write(
+        #             local_save_dir + "{}.wav".format(ms21_sources[src_idx]),
+        #             src,
+        #             args.samplerate
+        #         )
+        #     for src_idx, est_src in estimates.items():
+        #         est_src *= np.max(np.abs(audio)) / np.max(np.abs(est_src))
+        #         sf.write(
+        #             local_save_dir + "{}_estimate.wav".format(src_idx),
+        #             est_src,
+        #             args.samplerate
+        #         )
 
         
 
@@ -516,7 +522,7 @@ def write_final_res(output_dir):
         if not os.path.isdir(os.path.join(output_dir,track)):
             continue
         tracks[track] = {}
-        with open(os.path.join(output_dir,track, "metrics_{}.json".format(track)), "r") as f:
+        with open(os.path.join(output_dir,track, "ideal_metrics_{}.json".format(track)), "r") as f:
             tracks[track]  = json.load(f)
 
     # Print and save summary metrics
@@ -543,7 +549,7 @@ def write_final_res(output_dir):
     print("Overall metrics :")
     print(final_results)
 
-    with open(os.path.join(output_dir, "final_metrics.json"), "w") as f:
+    with open(os.path.join(output_dir, "ideal_final_metrics.json"), "w") as f:
         json.dump({k:v for k,v in final_results.items()}, f, indent=0)
         
 if __name__ == "__main__":
