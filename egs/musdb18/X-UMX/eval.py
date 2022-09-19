@@ -383,8 +383,8 @@ def eval_main(parser, args):
     else:
         outdir = os.path.join(
             os.path.abspath(args.outdir),
-            f"EvaluateResults_musdb18hq_testset",
-        )
+            f"EvaluateResults_musdb18_testdata",
+        ) # change to "EvaluateResults_musdb18hq_testset" when doing evaluation on musdb18 test set
     Path(outdir).mkdir(exist_ok=True, parents=True)
     print("Evaluated results will be saved in:\n {}".format(outdir), file=sys.stderr)
 
