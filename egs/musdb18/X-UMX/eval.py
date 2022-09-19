@@ -449,7 +449,7 @@ def eval_main(parser, args):
         # estimates = separate(
         #     audio,  
         #     model,
-        #     instruments,
+        #     ms21_sources, # change to instruments when evaluation on musdb18 test set
         #     niter=args.niter,
         #     alpha=args.alpha,
         #     softmask=args.softmask,
@@ -579,7 +579,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--sources",        
         type=list,
-        default=["bass", "drums", "vocals", "other"],
+        default=["bass", "percussion", "vocal", "other"],
         help="Target Source Types",
     )
     
