@@ -573,7 +573,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--sources",        
         type=list,
-        default=["bass", "percussion", "vocal", "other"],
+        default=["bass", "drums", "vocals", "other"],
         help="Target Source Types",
     )
     
