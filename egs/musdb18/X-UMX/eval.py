@@ -467,7 +467,7 @@ def eval_main(parser, args):
     else:
         outdir = os.path.join(
             os.path.abspath(args.outdir),
-            f"EvaluateResults_musdb18_testdata",
+            f"EvaluateResults_musdb18hq_testset",
         ) # change to "EvaluateResults_musdb18hq_testset" when doing evaluation on musdb18 test set
     Path(outdir).mkdir(exist_ok=True, parents=True)
     print("Evaluated results will be saved in:\n {}".format(outdir), file=sys.stderr)
@@ -546,7 +546,7 @@ def eval_main(parser, args):
             estimates = separate(
                 audio,  
                 model,
-                ms21_sources, # change to instruments when evaluation on musdb18 test set
+                instruments, # change to instruments when evaluation on musdb18 test set
                 niter=args.niter,
                 alpha=args.alpha,
                 softmask=args.softmask,
