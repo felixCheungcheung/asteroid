@@ -502,7 +502,7 @@ def write_final_res(output_dir, oracle):
 
     # Print and save summary metrics
     final_results = {}
-    sources = ['bass', 'percussion', 'vocal', 'other']
+    sources = ['bass', 'drums', 'vocals', 'other']
     metric_names = ["nsdr", "SDR", "SIR", "ISR", "SAR"]
     # metric_names = next(iter(tracks[track].values()))[sources[0]]
     for metric_name in metric_names:
