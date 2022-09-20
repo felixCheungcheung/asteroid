@@ -21,8 +21,8 @@ import pandas as pd
 # import torchaudio
 from tqdm import tqdm
 import MS_21Dataloader
-from memory_profiler import profile
-
+# from memory_profiler import profile
+from scipy.signal import stft, istft
 
 os.environ['KMP_DUPLICATE_LIB_OK']='True'
 COMPUTE_METRICS = ["si_sdr", "sdr", "sir", "sar"]
@@ -47,7 +47,7 @@ def load_model(model_name, device="cpu"):
     return model, model.sources
 
 
-def istft(X, rate=44100, n_fft=4096, n_hopsize=1024):
+def istft_local(X, rate=44100, n_fft=4096, n_hopsize=1024):
     t, audio = scipy.signal.istft(
         X / (n_fft / 2), rate, nperseg=n_fft, noverlap=n_fft - n_hopsize, boundary=True
     )
@@ -112,105 +112,65 @@ def estimate_and_evaluate(track):
     # print nicely formatted and aggregated scores
     print(scores)
 
-# def separate(
-#     audio,
-#     x_umx_target,
-#     instruments,
-#     niter=1,
-#     softmask=False,
-#     alpha=1.0,
-#     residual_model=False,
-#     device="cpu",
-# ):
-#     """
-#     Performing the separation on audio input
+def IRM(audio, ground_truths, alpha=2, eval_dir=None):
+    """Ideal Ratio Mask:
+    processing all channels inpependently with the ideal ratio mask.
+    this is the ratio of spectrograms, where alpha is the exponent to take for
+    spectrograms. usual values are 1 (magnitude) and 2 (power)"""
 
-#     Parameters
-#     ----------
-#     audio: np.ndarray [shape=(nb_samples, nb_channels, nb_timesteps)]
-#         mixture audio
+    # STFT parameters
+    nfft = 4096
 
-#     x_umx_target: asteroid.models
-#         X-UMX model used for separating
+    # small epsilon to avoid dividing by zero
+    eps = np.finfo(np.float).eps
 
-#     instruments: list
-#         The list of instruments, e.g., ["bass", "drums", "vocals"]
+    # compute STFT of Mixture
+    N = audio.shape[0]  # remember number of samples for future use
+    X = stft(audio.T, nperseg=nfft)[-1]
+    (I, F, T) = X.shape
 
-#     niter: int
-#          Number of EM steps for refining initial estimates in a
-#          post-processing stage, defaults to 1.
+    # Compute sources spectrograms
+    P = {}
+    # compute model as the sum of spectrograms
+    model = eps
+    for idx, src_name in enumerate(args.sources):
+        # compute spectrogram of target source:
+        # magnitude of STFT to the power alpha
+        P[src_name] = np.abs(stft(ground_truths[idx].T, nperseg=nfft)[-1])**alpha
+        model += P[src_name]
 
-#     softmask: boolean
-#         if activated, then the initial estimates for the sources will
-#         be obtained through a ratio mask of the mixture STFT, and not
-#         by using the default behavior of reconstructing waveforms
-#         by using the mixture phase, defaults to False
+    # now performs separation
+    estimates = {}
+    accompaniment_source = 0
+    for idx, src_name in enumerate(args.sources):
+        # compute soft mask as the ratio between source spectrogram and total
+        Mask = np.divide(np.abs(P[src_name]), model)
 
-#     alpha: float
-#         changes the exponent to use for building ratio masks, defaults to 1.0
+        # multiply the mix by the mask
+        Yj = np.multiply(X, Mask)
 
-#     residual_model: boolean
-#         computes a residual target, for custom separation scenarios
-#         when not all targets are available, defaults to False
+        # invert to time domain
+        target_estimate = istft(Yj)[1].T[:N, :]
 
-#     device: str
-#         set torch device. Defaults to `cpu`.
+        # set this as the source estimate
+        estimates[src_name] = target_estimate
 
-#     Returns
-#     -------
-#     estimates: `dict` [`str`, `np.ndarray`]
-#         dictionary with all estimates obtained by the separation model.
-#     """
+        # accumulate to the accompaniment if this is not vocals
+        # if name != 'vocals':
+        #     accompaniment_source += target_estimate
 
-#     # convert numpy audio to torch
-#     audio_torch = torch.tensor(audio.T[None, ...]).float().to(device)
-#     audio_len = audio_torch.shape[-1]
+    # estimates['accompaniment'] = accompaniment_source
 
-#     source_names = []
-#     V = []
+    # if eval_dir is not None:
+    #     museval.eval_mus_track(
+    #         track,
+    #         estimates,
+    #         output_dir=eval_dir,
+    #     )
 
-#     masked_tf_rep, _ = x_umx_target(audio_torch)
-#     # shape: (Sources, frames, batch, channels, fbin)
+    return estimates
 
-#     for j, target in enumerate(instruments):
-#         Vj = masked_tf_rep[j, Ellipsis].cpu().detach().numpy()
-#         if softmask:
-#             # only exponentiate the model if we use softmask
-#             Vj = Vj ** alpha
-#         # output is nb_frames, nb_samples, nb_channels, nb_bins
-#         V.append(Vj[:, 0, Ellipsis])  # remove sample dim
-#         source_names += [target]
-
-#     V = np.transpose(np.array(V), (1, 3, 2, 0))
-
-#     # convert to complex numpy type
-#     tmp = x_umx_target.encoder(audio_torch)
-#     X = torch_complex_from_magphase(tmp[0].permute(1, 2, 3, 0), tmp[1])
-#     X = X.detach().cpu().numpy()
-#     X = X[0].transpose(2, 1, 0)
-
-#     if residual_model or len(instruments) == 1:
-#         V = norbert.residual_model(V, X, alpha if softmask else 1)
-#         source_names += ["residual"] if len(instruments) > 1 else ["accompaniment"]
-
-#     Y = norbert.wiener(V, X.astype(np.complex128), niter, use_softmask=softmask)
-
-#     estimates = []
-#     for j, name in enumerate(source_names):
-#         audio_hat = istft(
-#             Y[..., j].T,
-#             rate=x_umx_target.sample_rate,
-#             n_fft=x_umx_target.in_chan,
-#             n_hopsize=x_umx_target.n_hop,
-#         )
-#         pad_len = abs(audio_hat.shape[1] - audio_len)
-#         if pad_len !=0:
-#             audio_pad = np.pad(audio_hat.squeeze(), (0,pad_len),'linear_ramp', end_values=(0,0))
-#         estimates.append(audio_pad.T)
-
-#     return estimates
-
-@ profile
+# @ profile
 def separate(
     audio,
     x_umx_target,
@@ -292,7 +252,7 @@ def separate(
     del X
     estimates = {}
     for j, name in enumerate(source_names):
-        audio_hat = istft(
+        audio_hat = istft_local(
             Y[..., j].T,
             rate=x_umx_target.sample_rate,
             n_fft=x_umx_target.in_chan,
@@ -413,12 +373,23 @@ def eval_main(parser, args):
         print(track_name)
 
         local_save_dir = os.path.join(outdir, "{}/".format(track_name))
-        metric_dir = os.path.join(local_save_dir, "ideal_metrics_{}.json".format(track_name))
-        if os.path.exists(metric_dir):
-            print("Found ideal_metric.json, skipping ", track_name)
-            continue
+        if args.oracle:
+            metric_dir = os.path.join(local_save_dir, "ideal_metrics_{}.json".format(track_name))
+            if os.path.exists(metric_dir):
+                print("Found ideal_metric.json, skipping ", track_name)
+                continue
+            else:
+                print("Not found, ", metric_dir)
         else:
-            print("Not found, ", metric_dir)
+            metric_dir = os.path.join(local_save_dir, "metrics_{}.json".format(track_name))
+            if os.path.exists(metric_dir):
+                print("Found metric.json, skipping ", track_name)
+                continue
+            else:
+                print("Not found, ", metric_dir)
+
+        
+        
 
         # audio, ground_truths, track_name = test_dataset[idx]
         
@@ -445,18 +416,21 @@ def eval_main(parser, args):
             audio = np.repeat(audio, 2, axis=1)
 
         # model._return_time_signals = True
+        if args.oracle:
+            estimates = IRM(audio, ground_truths)
+        else:
+            estimates = separate(
+                audio,  
+                model,
+                ms21_sources, # change to instruments when evaluation on musdb18 test set
+                niter=args.niter,
+                alpha=args.alpha,
+                softmask=args.softmask,
+                residual_model=args.residual_model,
+                device=device,
+            )
         
-        # estimates = separate(
-        #     audio,  
-        #     model,
-        #     ms21_sources, # change to instruments when evaluation on musdb18 test set
-        #     niter=args.niter,
-        #     alpha=args.alpha,
-        #     softmask=args.softmask,
-        #     residual_model=args.residual_model,
-        #     device=device,
-        # )
-        estimates = read_estimate(local_save_dir, ms21_sources)
+        
         # del estimates
         # get_metrics only accept mono for each source
         scores, n_sdr = eval_track(ground_truths, estimates, win=30*44100, hop=15*44100, compute_sdr=True)
@@ -477,57 +451,58 @@ def eval_main(parser, args):
                     }
                     tracks[target].update(values)
         
-        # utt_metrics = get_metrics(audio.sum(axis=1), gt_eval_np, estimates_eval_np.sum(axis = 1), sample_rate=44100, metrics_list=COMPUTE_METRICS, average=False)
-
-        # series_list.append(pd.Series(utt_metrics))
-
+        
         # Save some examples in a folder. Wav files and metrics as text.
-        # track.name should be retrieved
+        
         os.makedirs(local_save_dir, exist_ok=True)
         # Write local metrics to the example folder.
         with open(metric_dir, "w") as f:
             json.dump({k:v for k,v in tracks.items()}, f, indent=0)
             
-        # if idx in save_idx:
-        #     local_save_dir = os.path.join(outdir, "{}/".format(track_name))
-        #     os.makedirs(local_save_dir, exist_ok=True)
-        #     sf.write(
-        #         local_save_dir + "mixture.wav",
-        #         audio,
-        #         args.samplerate
-        #     )
-        #     # Loop over the sources and estimates
-        #     for src_idx, src in enumerate(ground_truths):
-        #         sf.write(
-        #             local_save_dir + "{}.wav".format(ms21_sources[src_idx]),
-        #             src,
-        #             args.samplerate
-        #         )
-        #     for src_idx, est_src in estimates.items():
-        #         est_src *= np.max(np.abs(audio)) / np.max(np.abs(est_src))
-        #         sf.write(
-        #             local_save_dir + "{}_estimate.wav".format(src_idx),
-        #             est_src,
-        #             args.samplerate
-        #         )
+        if (idx in save_idx) and not args.oracle:
+            local_save_dir = os.path.join(outdir, "{}/".format(track_name))
+            os.makedirs(local_save_dir, exist_ok=True)
+            sf.write(
+                local_save_dir + "mixture.wav",
+                audio,
+                args.samplerate
+            )
+            # Loop over the sources and estimates
+            for src_idx, src in enumerate(ground_truths):
+                sf.write(
+                    local_save_dir + "{}.wav".format(ms21_sources[src_idx]),
+                    src,
+                    args.samplerate
+                )
+            for src_idx, est_src in estimates.items():
+                est_src *= np.max(np.abs(audio)) / np.max(np.abs(est_src))
+                sf.write(
+                    local_save_dir + "{}_estimate.wav".format(src_idx),
+                    est_src,
+                    args.samplerate
+                )
 
         
 
 
-    write_final_res(outdir)
+    write_final_res(outdir,args.oracle)
 
-def write_final_res(output_dir):
+def write_final_res(output_dir, oracle):
     tracks = {}
     for track in os.listdir(output_dir):
         if not os.path.isdir(os.path.join(output_dir,track)):
             continue
         tracks[track] = {}
-        with open(os.path.join(output_dir,track, "ideal_metrics_{}.json".format(track)), "r") as f:
-            tracks[track]  = json.load(f)
+        if oracle:
+            with open(os.path.join(output_dir,track, "ideal_metrics_{}.json".format(track)), "r") as f:
+                tracks[track]  = json.load(f)
+        else:
+            with open(os.path.join(output_dir,track, "metrics_{}.json".format(track)), "r") as f:
+                tracks[track]  = json.load(f)
 
     # Print and save summary metrics
     final_results = {}
-    sources = ['bass', 'drums', 'vocals', 'other']
+    sources = ['bass', 'percussion', 'vocal', 'other']
     metric_names = ["nsdr", "SDR", "SIR", "ISR", "SAR"]
     # metric_names = next(iter(tracks[track].values()))[sources[0]]
     for metric_name in metric_names:
@@ -548,15 +523,18 @@ def write_final_res(output_dir):
 
     print("Overall metrics :")
     print(final_results)
-
-    with open(os.path.join(output_dir, "ideal_final_metrics.json"), "w") as f:
-        json.dump({k:v for k,v in final_results.items()}, f, indent=0)
+    if oracle:
+        with open(os.path.join(output_dir, "ideal_final_metrics.json"), "w") as f:
+            json.dump({k:v for k,v in final_results.items()}, f, indent=0)
+    else:
+        with open(os.path.join(output_dir, "final_metrics.json"), "w") as f:
+            json.dump({k:v for k,v in final_results.items()}, f, indent=0)
         
 if __name__ == "__main__":
     # Training settings
     parser = argparse.ArgumentParser(description="OSU Inference", add_help=False)
 
-    parser.add_argument("--train_dir", type=str, default='E:/ms21hq_DB_temp', help="The path to the MUSDB18 dataset")
+    parser.add_argument("--train_dir", type=str, default='E:/ms21hq_finalDB_44k_norm', help="The path to the MUSDB18 dataset")
 
     parser.add_argument(
         "--outdir",
@@ -586,7 +564,9 @@ if __name__ == "__main__":
     parser.add_argument(
         "--no_cuda", action="store_true", default=False, help="disables CUDA inference"
     )
-
+    parser.add_argument(
+        "--oracle", action="store_true", default=False, help="calculate oracle IRM for MS21 test set"
+    )
     args, _ = parser.parse_known_args()
     args = inference_args(parser, args)
 
