@@ -467,7 +467,7 @@ def eval_main(parser, args):
     else:
         outdir = os.path.join(
             os.path.abspath(args.outdir),
-            f"EvaluateResults_musdb18hq_testset",
+            f"EvaluateResults_musdb18XL_testset",
         ) # change to "EvaluateResults_musdb18hq_testset" when doing evaluation on musdb18 test set
     Path(outdir).mkdir(exist_ok=True, parents=True)
     print("Evaluated results will be saved in:\n {}".format(outdir), file=sys.stderr)
@@ -658,7 +658,7 @@ if __name__ == "__main__":
     # Training settings
     parser = argparse.ArgumentParser(description="OSU Inference", add_help=False)
 
-    parser.add_argument("--train_dir", type=str, default='E:/ms21hq_finalDB_44k_norm', help="The path to the MUSDB18 dataset")
+    parser.add_argument("--train_dir", type=str, default='E:/musdb-XL-audio', help="The path to the MUSDB18 dataset")
 
     parser.add_argument(
         "--outdir",
