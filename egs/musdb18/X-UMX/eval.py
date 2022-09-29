@@ -467,7 +467,7 @@ def eval_main(parser, args):
     else:
         outdir = os.path.join(
             os.path.abspath(args.outdir),
-            f"EvaluateResults_musdb18XL_testset",
+            f"EvaluateResults_ms21_backVox_new_testset",
         ) # change to "EvaluateResults_musdb18hq_testset" when doing evaluation on musdb18 test set
     Path(outdir).mkdir(exist_ok=True, parents=True)
     print("Evaluated results will be saved in:\n {}".format(outdir), file=sys.stderr)
@@ -681,7 +681,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--sources",        
         type=list,
-        default=["bass", "drums", "vocals", "other"],
+        # default=["bass", "drums", "vocals", "other"], # use this when evaluate on musdb18 test set
+        default=["bass", "drums", "vocals", "other"], # use this when evaluate on MS21 test set
         help="Target Source Types",
     )
     
