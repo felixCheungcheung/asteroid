@@ -682,7 +682,7 @@ if __name__ == "__main__":
         "--sources",        
         type=list,
         # default=["bass", "drums", "vocals", "other"], # use this when evaluate on musdb18 test set
-        default=["bass", "drums", "vocals", "other"], # use this when evaluate on MS21 test set
+        default=["bass", "percussion", "vocal", "other"], # use this when evaluate on MS21 test set
         help="Target Source Types",
     )
     
